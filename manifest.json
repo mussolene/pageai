@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Confluence AI Search (Local-first)",
+  "description": "Local-first smart search and summaries for Confluence pages. No data leaves your machine.",
+  "version": "0.1.0",
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "*://*/wiki/*",
+    "*://*/confluence/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*/wiki/*",
+        "*://*/confluence/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "options_page": "options.html"
+}

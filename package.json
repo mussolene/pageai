@@ -1,0 +1,21 @@
+{
+  "name": "confluence-ai-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Chrome extension for smart search and summaries in Confluence.",
+  "scripts": {
+    "dev": "node ./scripts/dev.mjs",
+    "build": "NODE_ENV=production node ./scripts/dev.mjs --prod",
+    "lint": "echo \"No linter configured yet\"",
+    "test": "echo \"No automated tests yet\""
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "@types/chrome": "^0.0.273",
+    "@types/node": "^22.10.2"
+  }
+}

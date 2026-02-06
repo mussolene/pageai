@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Confluence AI Extension – Options</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <h1 class="title">Confluence AI – Options</h1>
+        <p class="subtitle">Configure local LLM endpoint</p>
+      </header>
+
+      <section class="config">
+        <details open>
+          <summary>LLM config (local endpoint)</summary>
+          <label>
+            Endpoint
+            <input id="llm-endpoint" type="text" placeholder="http://localhost:11434/v1/chat/completions" />
+          </label>
+          <label>
+            Model
+            <input id="llm-model" type="text" placeholder="llama3.1" />
+          </label>
+          <label>
+            API key (optional)
+            <input id="llm-api-key" type="password" />
+          </label>
+          <button id="llm-save">Save</button>
+          <span id="llm-status" class="status"></span>
+        </details>
+      </section>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+  </html>
+
