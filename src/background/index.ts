@@ -202,7 +202,8 @@ async function executeToolCallsAndAppendMessages(
 async function runAgentStreamWithMcpTools(
   userMessage: string,
   systemPrompt: string,
-  port: chrome.runtime.Port
+  port: chrome.runtime.Port,
+  signal?: AbortSignal
 ): Promise<{ text: string; reasoningSteps: ReasoningStep[] } | { error: string }> {
   const loaded = await getEnabledMcpToolsWithMap();
   if ("error" in loaded) return { error: loaded.error };
@@ -211,7 +212,7 @@ async function runAgentStreamWithMcpTools(
     const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLMStream(
       [{ role: "user", content: userMessage }],
-      { systemPrompt: promptWithStatus, onChunk: (text) => safePortPost(port, { type: "chunk", text }) }
+      { systemPrompt: promptWithStatus, onChunk: (text) => safePortPost(port, { type: "chunk", text }), signal }
     );
     if ("error" in result) return result;
     const steps: ReasoningStep[] =
@@ -230,7 +231,8 @@ async function runAgentStreamWithMcpTools(
     const result = await chatWithLLMStreamWithTools(messages, {
       systemPrompt: systemPromptWithTools,
       tools: openAITools,
-      onChunk: (text) => safePortPost(port, { type: "chunk", text })
+      onChunk: (text) => safePortPost(port, { type: "chunk", text }),
+      signal
     });
 
     if ("error" in result) return result;
@@ -315,6 +317,8 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
     const queryText = msg.payload.text.trim();
+    const abortController = new AbortController();
+    port.onDisconnect.addListener(() => abortController.abort());
 
     (async () => {
       try {
@@ -330,7 +334,8 @@ chrome.runtime.onConnect.addListener((port) => {
             const result = await runAgentStreamWithMcpTools(
               queryText,
               BASE_CHAT_SYSTEM_PROMPT,
-              port
+              port,
+              abortController.signal
             );
             if ("error" in result) {
               safePortPost(port, { type: "error", error: result.error });
@@ -352,7 +357,8 @@ chrome.runtime.onConnect.addListener((port) => {
             [{ role: "user", content: queryText }],
             {
               systemPrompt,
-              onChunk: (text: string) => safePortPost(port, { type: "chunk", text })
+              onChunk: (text: string) => safePortPost(port, { type: "chunk", text }),
+              signal: abortController.signal
             }
           );
           if ("error" in result) {
@@ -407,6 +413,7 @@ chrome.runtime.onConnect.addListener((port) => {
         safePortPost(port, { type: "chunk", text: summary.text });
         safePortPost(port, { type: "done", message: chatResponse });
       } catch (error) {
+        if ((error as Error).name === "AbortError") return;
         safePortPost(port, { type: "error", error: (error as Error).message });
       }
     })();

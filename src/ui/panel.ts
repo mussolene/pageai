@@ -436,6 +436,7 @@ async function handleSendMessage() {
 
   port.onDisconnect.addListener(() => {
     if (streamingAssistantIndex !== null) {
+      chatHistory.splice(streamingAssistantIndex, 1);
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
@@ -863,6 +864,17 @@ function wireEvents() {
     if (streamPort) {
       streamPort.disconnect();
       streamPort = null;
+      if (streamingAssistantIndex !== null) {
+        chatHistory.splice(streamingAssistantIndex, 1);
+      }
+      streamingAssistantIndex = null;
+      streamingThinkingEl = null;
+      streamingAnswerEl = null;
+      streamingBuffer = "";
+      streamingReasoningSteps = [];
+      isSending = false;
+      void updatePlayStopButton(false);
+      void renderMessages();
     } else {
       void handleSendMessage();
     }

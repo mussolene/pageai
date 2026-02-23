@@ -20,6 +20,8 @@ export interface LlmChatOptions {
   maxTokens?: number;
   stream?: boolean;
   systemPrompt?: string;
+  /** Отмена стрима (напр. при нажатии Stop в UI). */
+  signal?: AbortSignal;
 }
 
 /** OpenAI-compatible tool for chat completions (function calling). */
@@ -339,7 +341,7 @@ export async function chatWithLLMStream(
     return { error: "LLM endpoint is not configured. Configure LM Studio at localhost:1234" };
   }
 
-  const { onChunk, ...rest } = options;
+  const { onChunk, signal, ...rest } = options;
   const systemPrompt = rest.systemPrompt || buildChatSystemPrompt();
   const messagesWithSystem = [
     { role: "system" as const, content: systemPrompt },
@@ -348,6 +350,7 @@ export async function chatWithLLMStream(
 
   try {
     const response = await fetch(config.endpoint, {
+      signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -373,13 +376,20 @@ export async function chatWithLLMStream(
     if (!reader) {
       return { error: "Streaming not supported by response" };
     }
+    if (signal?.aborted) {
+      reader.cancel();
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const onAbort = () => reader.cancel();
+    signal?.addEventListener("abort", onAbort);
 
     const decoder = new TextDecoder();
     let buffer = "";
     let fullContent = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -412,7 +422,10 @@ export async function chatWithLLMStream(
         await setCachedLlmResponse(lastUserMsg.content, fullContent);
       }
     }
-    return { text: finalText, thinking: thinkingText };
+      return { text: finalText, thinking: thinkingText };
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
   } catch (error) {
     return { error: `LLM request error: ${(error as Error).message}` };
   }
@@ -450,6 +463,7 @@ export async function chatWithLLMStreamWithTools(
     maxTokens?: number;
     tools?: LlmToolDef[];
     onChunk: (text: string) => void;
+    signal?: AbortSignal;
   }
 ): Promise<
   | { text: string; thinking?: string }
@@ -479,8 +493,10 @@ export async function chatWithLLMStreamWithTools(
     body.tool_choice = "auto";
   }
 
+  const signal = options.signal;
   try {
     const response = await fetch(config.endpoint, {
+      signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -498,14 +514,21 @@ export async function chatWithLLMStreamWithTools(
 
     const reader = response.body?.getReader();
     if (!reader) return { error: "Streaming not supported by response" };
+    if (signal?.aborted) {
+      reader.cancel();
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const onAbort = () => reader.cancel();
+    signal?.addEventListener("abort", onAbort);
 
     const decoder = new TextDecoder();
     let buffer = "";
     let fullContent = "";
     const toolCallsByIndex = new Map<number, AccumulatedToolCall>();
 
-    while (true) {
-      const { done, value } = await reader.read();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -546,18 +569,21 @@ export async function chatWithLLMStreamWithTools(
       }
     }
 
-    const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>([\s\S]*)/);
-    const finalText = thinkMatch ? thinkMatch[2].trim() : fullContent;
-    const thinkingText = thinkMatch ? thinkMatch[1].trim() : undefined;
+      const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>([\s\S]*)/);
+      const finalText = thinkMatch ? thinkMatch[2].trim() : fullContent;
+      const thinkingText = thinkMatch ? thinkMatch[1].trim() : undefined;
 
-    const sortedCalls: LlmToolCall[] = Array.from(toolCallsByIndex.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map((entry) => entry[1])
-      .filter((tc): tc is LlmToolCall => !!(tc.id && tc.name));
-    if (sortedCalls.length > 0) {
-      return { text: finalText, thinking: thinkingText, tool_calls: sortedCalls };
+      const sortedCalls: LlmToolCall[] = Array.from(toolCallsByIndex.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map((entry) => entry[1])
+        .filter((tc): tc is LlmToolCall => !!(tc.id && tc.name));
+      if (sortedCalls.length > 0) {
+        return { text: finalText, thinking: thinkingText, tool_calls: sortedCalls };
+      }
+      return { text: finalText, thinking: thinkingText };
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
-    return { text: finalText, thinking: thinkingText };
   } catch (error) {
     return { error: `LLM request error: ${(error as Error).message}` };
   }
