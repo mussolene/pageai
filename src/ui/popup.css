@@ -126,6 +126,11 @@ body.standalone-window #app {
   min-height: 0;
 }
 
+/* В отдельном окне заголовок только в title бара окна — header внутри не показываем */
+body.standalone-window .header {
+  display: none;
+}
+
 #app {
   flex: 1;
   min-height: 600px;
