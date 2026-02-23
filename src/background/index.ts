@@ -6,7 +6,10 @@ import { callMcpTool } from "../mcp/client";
 
 const storage = new Storage();
 
-const PAGE_LOAD_ERROR = "Please wait for the page to load completely, then try again.";
+const PAGE_LOAD_ERROR =
+  "Please wait for the page to load completely, then try again.";
+const PAGE_ACCESS_ERROR =
+  "Could not access this tab. Refresh the page (F5) and try again, or use a different tab.";
 
 /** Проверяет, спрашивает ли пользователь явно про текущую страницу. Только в этом случае парсим вкладку. */
 function isQuestionAboutCurrentPage(text: string): boolean {
@@ -14,6 +17,8 @@ function isQuestionAboutCurrentPage(text: string): boolean {
   const phrases = [
     "этой страниц",
     "текущей страниц",
+    "данные текущей страницы",
+    "данные этой страницы",
     "этой странице",
     "на этой странице",
     "что на странице",
@@ -41,12 +46,37 @@ interface GetCurrentPageResponse {
   error?: string;
 }
 
+function isConnectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("Receiving end does not exist") ||
+    msg.includes("Could not establish connection") ||
+    msg.includes("message port closed")
+  );
+}
+
 async function getCurrentPageWithRetry(tabId: number, maxAttempts = 3): Promise<GetCurrentPageResponse> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return (await chrome.tabs.sendMessage(tabId, { type: "GET_CURRENT_PAGE" })) as GetCurrentPageResponse;
-    } catch {
-      if (attempt === maxAttempts) throw new Error(PAGE_LOAD_ERROR);
+    } catch (err) {
+      const lastAttempt = attempt === maxAttempts;
+      if (lastAttempt && isConnectionError(err)) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ["content.js"]
+          });
+          await new Promise((r) => setTimeout(r, 400));
+          const response = (await chrome.tabs.sendMessage(tabId, {
+            type: "GET_CURRENT_PAGE"
+          })) as GetCurrentPageResponse;
+          return response;
+        } catch (retryErr) {
+          throw new Error(PAGE_ACCESS_ERROR);
+        }
+      }
+      if (lastAttempt) throw new Error(PAGE_LOAD_ERROR);
       await new Promise((r) => setTimeout(r, 300 * attempt));
     }
   }

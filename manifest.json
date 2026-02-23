@@ -7,7 +7,8 @@
   "permissions": [
     "storage",
     "activeTab",
-    "windows"
+    "windows",
+    "scripting"
   ],
   "action": {
     "default_title": "__MSG_appName__",
