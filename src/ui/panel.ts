@@ -353,6 +353,15 @@ async function handleSendMessage() {
   const port = chrome.runtime.connect({ name: "pageai-chat-stream" });
   streamPort = port;
 
+  const pingIntervalId = setInterval(() => {
+    try {
+      port.postMessage({ type: "ping" });
+    } catch {
+      clearInterval(pingIntervalId);
+    }
+  }, 15_000);
+  const clearPing = () => clearInterval(pingIntervalId);
+
   port.onMessage.addListener((m: { type: string; text?: string; error?: string; message?: ChatMessage; steps?: ReasoningStep[] }) => {
     if (m.type === "reasoning_step" && Array.isArray(m.steps)) {
       streamingReasoningSteps.push(...m.steps);
@@ -392,6 +401,7 @@ async function handleSendMessage() {
       }
       if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } else if (m.type === "done" && m.message) {
+      clearPing();
       if (streamingAssistantIndex !== null) {
         chatHistory[streamingAssistantIndex] = m.message;
       } else {
@@ -412,6 +422,7 @@ async function handleSendMessage() {
       }
       void renderMessages();
     } else if (m.type === "error") {
+      clearPing();
       const errText = m.error ?? "Unknown error";
       const errMessage: ChatMessage = {
         role: "assistant",
@@ -436,6 +447,7 @@ async function handleSendMessage() {
   });
 
   port.onDisconnect.addListener(() => {
+    clearPing();
     if (streamingAssistantIndex !== null) {
       chatHistory.splice(streamingAssistantIndex, 1);
       streamingAssistantIndex = null;
@@ -456,6 +468,7 @@ async function handleSendMessage() {
       payload: { text }
     });
   } catch (err) {
+    clearPing();
     const errMessage: ChatMessage = {
       role: "assistant",
       content: `Error: ${(err as Error).message}`,
@@ -886,6 +899,11 @@ function wireEvents() {
   clearChatBtn?.addEventListener("click", () => void clearChat());
   sendButton.addEventListener("click", () => {
     if (streamPort) {
+      try {
+        streamPort.postMessage({ type: "STOP_STREAM" });
+      } catch {
+        /* port may already be disconnected */
+      }
       streamPort.disconnect();
       streamPort = null;
       if (streamingAssistantIndex !== null) {

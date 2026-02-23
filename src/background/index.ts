@@ -309,16 +309,35 @@ async function runAgentWithMcpTools(
   return { error: "Agent reached max tool iterations without final answer" };
 }
 
+/** Показать уведомление о готовности ответа (popup был закрыт, ответ сохранён в чат). */
+function showChatReadyNotification(): void {
+  if (!chrome.notifications?.create) return;
+  chrome.notifications.create("pageai-chat-ready", {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+    title: chrome.i18n.getMessage("notificationChatReadyTitle") || "PageAI",
+    message: chrome.i18n.getMessage("notificationChatReadyBody") || "Answer is ready. Open the extension to view."
+  });
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "pageai-chat-stream") return;
+  let clientDisconnected = false;
+  const abortController = new AbortController();
+  port.onDisconnect.addListener(() => {
+    clientDisconnected = true;
+  });
   port.onMessage.addListener((msg: { type: string; payload?: { text: string } }) => {
+    if (msg.type === "ping") return;
+    if (msg.type === "STOP_STREAM") {
+      abortController.abort();
+      return;
+    }
     if (msg.type !== "CHAT_STREAM_REQUEST" || !msg.payload?.text?.trim()) {
       safePortPost(port, { type: "error", error: "Invalid request" });
       return;
     }
     const queryText = msg.payload.text.trim();
-    const abortController = new AbortController();
-    port.onDisconnect.addListener(() => abortController.abort());
 
     (async () => {
       try {
@@ -350,6 +369,10 @@ chrome.runtime.onConnect.addListener((port) => {
               doneMessage.reasoningSteps = result.reasoningSteps;
             }
             safePortPost(port, { type: "done", message: doneMessage });
+            if (clientDisconnected) {
+              await storage.saveChatMessage(doneMessage);
+              showChatReadyNotification();
+            }
             return;
           }
 
@@ -365,15 +388,17 @@ chrome.runtime.onConnect.addListener((port) => {
             safePortPost(port, { type: "error", error: result.error });
             return;
           }
-          safePortPost(port, {
-            type: "done",
-            message: {
-              role: "assistant",
-              content: result.text,
-              timestamp: new Date().toISOString(),
-              ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {})
-            }
-          });
+          const doneMsg: ChatMessage = {
+            role: "assistant",
+            content: result.text,
+            timestamp: new Date().toISOString(),
+            ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {})
+          };
+          safePortPost(port, { type: "done", message: doneMsg });
+          if (clientDisconnected) {
+            await storage.saveChatMessage(doneMsg);
+            showChatReadyNotification();
+          }
           return;
         }
 
@@ -412,6 +437,10 @@ chrome.runtime.onConnect.addListener((port) => {
         };
         safePortPost(port, { type: "chunk", text: summary.text });
         safePortPost(port, { type: "done", message: chatResponse });
+        if (clientDisconnected) {
+          await storage.saveChatMessage(chatResponse);
+          showChatReadyNotification();
+        }
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
         safePortPost(port, { type: "error", error: (error as Error).message });

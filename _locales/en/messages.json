@@ -6,5 +6,13 @@
   "appDescription": {
     "message": "Local-first AI assistant for any webpage. Chat with any page, get summaries and answers. No data leaves your machine.",
     "description": "Extension description"
+  },
+  "notificationChatReadyTitle": {
+    "message": "Page AI",
+    "description": "Notification title when chat response is ready"
+  },
+  "notificationChatReadyBody": {
+    "message": "Answer is ready. Open the extension to view.",
+    "description": "Notification body when popup was closed and response saved"
   }
 }
