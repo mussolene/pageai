@@ -309,6 +309,25 @@ async function runAgentWithMcpTools(
   return { error: "Agent reached max tool iterations without final answer" };
 }
 
+const PING_RUNNER_URL = "ping-runner.html";
+
+/** Открыть маленькое невидимое окно для пингов в background (сбрасывает 30s idle таймер SW). */
+async function openStreamKeepaliveWindow(): Promise<number | null> {
+  try {
+    const w = await chrome.windows.create({
+      url: chrome.runtime.getURL(PING_RUNNER_URL),
+      type: "popup",
+      width: 1,
+      height: 1,
+      left: -9999,
+      top: -9999
+    });
+    return w?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Показать уведомление о готовности ответа (popup был закрыт, ответ сохранён в чат). */
 function showChatReadyNotification(): void {
   if (!chrome.notifications?.create) return;
@@ -321,6 +340,10 @@ function showChatReadyNotification(): void {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "pageai-stream-keepalive") {
+    port.onMessage.addListener(() => { /* пинги от ping-runner окна — только сброс idle таймера SW */ });
+    return;
+  }
   if (port.name !== "pageai-chat-stream") return;
   let clientDisconnected = false;
   const abortController = new AbortController();
@@ -340,7 +363,9 @@ chrome.runtime.onConnect.addListener((port) => {
     const queryText = msg.payload.text.trim();
 
     (async () => {
+      let keepaliveWindowId: number | null = null;
       try {
+        keepaliveWindowId = await openStreamKeepaliveWindow();
         if (!isQuestionAboutCurrentPage(queryText)) {
           const mcpLoaded = await getEnabledMcpToolsWithMap();
           const hasMcpTools = !("error" in mcpLoaded) && mcpLoaded.tools.length > 0;
@@ -444,6 +469,14 @@ chrome.runtime.onConnect.addListener((port) => {
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
         safePortPost(port, { type: "error", error: (error as Error).message });
+      } finally {
+        if (keepaliveWindowId != null) {
+          try {
+            await chrome.windows.remove(keepaliveWindowId);
+          } catch {
+            /* окно уже закрыто */
+          }
+        }
       }
     })();
   });

@@ -21,7 +21,8 @@ async function copyStatic() {
   await cp(join(root, "src", "ui", "popup.html"), join(outdir, "popup.html"));
   await cp(join(root, "src", "ui", "popup.css"), join(outdir, "popup.css"));
   await cp(join(root, "src", "ui", "options.html"), join(outdir, "options.html"));
-  
+  await cp(join(root, "src", "ui", "ping-runner.html"), join(outdir, "ping-runner.html"));
+
   // Copy locale files
   await mkdir(join(outdir, "_locales", "en"), { recursive: true });
   await mkdir(join(outdir, "_locales", "ru"), { recursive: true });
