@@ -19,6 +19,7 @@
   },
   "chat": {
     "tabChat": "Чат",
+    "clearChat": "Очистить чат",
     "placeholder": "Спросите что-нибудь о страницах...",
     "placeholderCurrentPage": "Спросите об этой странице...",
     "send": "Отправить",

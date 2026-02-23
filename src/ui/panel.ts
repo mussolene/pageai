@@ -36,6 +36,7 @@ const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivE
 const mcpCheckBtn = document.getElementById("mcp-check") as HTMLButtonElement | null;
 const mcpStatus = document.getElementById("mcp-status") as HTMLSpanElement | null;
 const chatModelSelect = document.getElementById("chat-model-select") as HTMLSelectElement | null;
+const clearChatBtn = document.getElementById("clear-chat-btn") as HTMLButtonElement | null;
 
 let chatHistory: ChatMessage[] = [];
 const storage = new Storage();
@@ -805,6 +806,11 @@ async function updateUI() {
 
   if (chatInput) chatInput.placeholder = await translate("chat.placeholderCurrentPage");
   if (sendButton) void updatePlayStopButton(false);
+  if (clearChatBtn) {
+    clearChatBtn.textContent = await translate("chat.clearChat");
+    clearChatBtn.title = await translate("chat.clearChat");
+    clearChatBtn.setAttribute("aria-label", await translate("chat.clearChat"));
+  }
 
   const llmEndpointTypeLabel = document.querySelector('label:has(#llm-endpoint-type) .label-text');
   const llmEndpointLabelText = document.querySelector('label:has(#llm-endpoint) .label-text');
@@ -857,9 +863,27 @@ function switchToTab(tab: "chat" | "settings") {
   tabSettings?.setAttribute("aria-selected", String(!chatActive));
 }
 
+async function clearChat(): Promise<void> {
+  if (streamPort) {
+    streamPort.disconnect();
+    streamPort = null;
+  }
+  streamingAssistantIndex = null;
+  streamingThinkingEl = null;
+  streamingAnswerEl = null;
+  streamingBuffer = "";
+  streamingReasoningSteps = [];
+  isSending = false;
+  await storage.clearChatHistory();
+  chatHistory = [];
+  void updatePlayStopButton(false);
+  void renderMessages();
+}
+
 function wireEvents() {
   tabChat?.addEventListener("click", () => switchToTab("chat"));
   tabSettings?.addEventListener("click", () => switchToTab("settings"));
+  clearChatBtn?.addEventListener("click", () => void clearChat());
   sendButton.addEventListener("click", () => {
     if (streamPort) {
       streamPort.disconnect();

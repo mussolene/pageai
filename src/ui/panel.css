@@ -162,8 +162,29 @@ body {
   gap: 0;
   flex-shrink: 0;
   padding: 0 16px;
+  align-items: center;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
+}
+
+.tab-bar-action {
+  margin-left: auto;
+}
+
+.tab-bar-action.clear-chat-btn {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-bottom: -1px;
+}
+
+.tab-bar-action.clear-chat-btn:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
 }
 
 .tab-btn {

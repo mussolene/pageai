@@ -19,6 +19,7 @@
   },
   "chat": {
     "tabChat": "Chat",
+    "clearChat": "Clear chat",
     "placeholder": "Ask anything about the pages...",
     "placeholderCurrentPage": "Ask about this page...",
     "send": "Send",

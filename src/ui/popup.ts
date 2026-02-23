@@ -36,6 +36,7 @@ const mcpServersConfigInput = document.getElementById("mcp-servers-config") as H
 const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivElement | null;
 const mcpCheckBtn = document.getElementById("mcp-check") as HTMLButtonElement | null;
 const mcpStatus = document.getElementById("mcp-status") as HTMLSpanElement | null;
+const clearChatBtn = document.getElementById("clear-chat-btn") as HTMLButtonElement | null;
 
 let chatHistory: ChatMessage[] = [];
 const storage = new Storage();
@@ -313,6 +314,22 @@ async function renderMessages() {
   }
 
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+async function clearChat(): Promise<void> {
+  if (streamPort) {
+    streamPort.disconnect();
+    streamPort = null;
+  }
+  streamingAssistantIndex = null;
+  streamingThinkingEl = null;
+  streamingAnswerEl = null;
+  streamingBuffer = "";
+  streamingReasoningSteps = [];
+  await storage.clearChatHistory();
+  chatHistory = [];
+  void updatePlayStopButton(false);
+  void renderMessages();
 }
 
 async function handleSendMessage() {
@@ -770,6 +787,11 @@ async function updateUI() {
 
   if (chatInput) chatInput.placeholder = await translate("chat.placeholderCurrentPage");
   if (sendButton) void updatePlayStopButton(false);
+  if (clearChatBtn) {
+    clearChatBtn.textContent = await translate("chat.clearChat");
+    clearChatBtn.title = await translate("chat.clearChat");
+    clearChatBtn.setAttribute("aria-label", await translate("chat.clearChat"));
+  }
 
   const llmEndpointTypeLabel = document.querySelector('label:has(#llm-endpoint-type) .label-text');
   const llmEndpointLabelText = document.querySelector('label:has(#llm-endpoint) .label-text');
@@ -815,6 +837,7 @@ async function updateUI() {
 function wireEvents() {
   tabChat?.addEventListener("click", () => switchToTab("chat"));
   tabSettings?.addEventListener("click", () => switchToTab("settings"));
+  clearChatBtn?.addEventListener("click", () => void clearChat());
   const popupExpandBtn = document.getElementById("popup-expand-btn");
   popupExpandBtn?.addEventListener("click", () => {
     const url = chrome.runtime.getURL("popup.html?standalone=1");
