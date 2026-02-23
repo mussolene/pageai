@@ -1,13 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
     <linearGradient id="chatGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#1e40af"/>
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
     </linearGradient>
   </defs>
-  <!-- Прозрачный фон; только символ чата -->
-  <path fill="url(#chatGrad)" d="M64 28c-18 0-32 12-32 28 0 10 5 19 13 25v18l12-9c3 0 6 1 7 1 18 0 32-12 32-28S82 28 64 28z"/>
-  <circle cx="50" cy="62" r="5" fill="#fff" opacity="0.9"/>
-  <circle cx="64" cy="62" r="5" fill="#fff" opacity="0.9"/>
-  <circle cx="78" cy="62" r="5" fill="#fff" opacity="0.9"/>
+  <!-- Пузырь чата: тонкий светлый контур для читаемости на светлой и тёмной теме (Chrome best practices) -->
+  <path
+    fill="url(#chatGrad)"
+    stroke="rgba(255,255,255,0.55)"
+    stroke-width="2"
+    stroke-linejoin="round"
+    d="M64 28c-18 0-32 12-32 28 0 10 5 19 13 25v18l12-9c3 0 6 1 7 1 18 0 32-12 32-28S82 28 64 28z"
+  />
+  <circle cx="50" cy="62" r="5" fill="#fff" opacity="0.95"/>
+  <circle cx="64" cy="62" r="5" fill="#fff" opacity="0.95"/>
+  <circle cx="78" cy="62" r="5" fill="#fff" opacity="0.95"/>
 </svg>
