@@ -26,6 +26,7 @@
     "thinking": "Thinking...",
     "reasoning": "Reasoning",
     "toolCall": "Tool call",
+    "answer": "Answer:",
     "you": "You",
     "assistant": "Assistant",
     "sources": "Sources:",

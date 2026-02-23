@@ -18,6 +18,8 @@ export interface OpenAITool {
 export interface ToolServerBinding {
   serverUrl: string;
   headers?: Record<string, string>;
+  /** Имя MCP-сервера из конфига (ключ в mcpServers) — обязательно для отображения в заголовке вызова. */
+  serverName: string;
 }
 
 export interface McpToolsLoadResult {
@@ -70,7 +72,7 @@ export async function getEnabledMcpToolsWithMap(): Promise<McpToolsLoadResult | 
             if (!t.name?.trim()) continue;
             const name = t.name.trim();
             if (toolToServer.has(name)) continue;
-            toolToServer.set(name, { serverUrl, headers });
+            toolToServer.set(name, { serverUrl, headers, serverName: server.name });
             tools.push({
               type: "function",
               function: {

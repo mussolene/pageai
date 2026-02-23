@@ -72,46 +72,67 @@ function parseThinkBuffer(buf: string): { thinking?: string; answer?: string } {
   return { thinking, answer };
 }
 
-/** Добавляет в контейнер блоки для цепочки шагов рассуждения (размышления + вызовы MCP). */
-async function appendReasoningSteps(container: HTMLElement, steps: ReasoningStep[]): Promise<void> {
+/** Форматирует аргументы вызова: для каждого параметра «Имя:\nЗначение» с новой строки. */
+function formatToolCallArgsMultiline(argsJson: string): string {
+  if (!argsJson?.trim()) return "";
+  try {
+    const obj = JSON.parse(argsJson) as Record<string, unknown>;
+    return Object.entries(obj)
+      .map(([k, v]) => `${k}:\n${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join("\n\n");
+  } catch {
+    return argsJson;
+  }
+}
+
+/** Создаёт DOM для одного шага рассуждения (размышление или вызов MCP). */
+async function buildReasoningStepElement(step: ReasoningStep): Promise<HTMLElement> {
   const reasoningLabel = await translate("chat.reasoning");
   const toolCallLabel = await translate("chat.toolCall");
-  for (const step of steps) {
-    if (step.type === "thinking") {
-      const details = document.createElement("details");
-      details.className = "thinking-block";
-      details.open = false;
-      const summary = document.createElement("summary");
-      summary.textContent = reasoningLabel;
-      const thinkingContent = document.createElement("div");
-      thinkingContent.className = "thinking-content";
-      thinkingContent.textContent = step.text;
-      details.appendChild(summary);
-      details.appendChild(thinkingContent);
-      container.appendChild(details);
-    } else {
-      const toolBlock = document.createElement("details");
-      toolBlock.className = "thinking-block tool-call-block";
-      toolBlock.open = false;
-      const summary = document.createElement("summary");
-      summary.textContent = `${toolCallLabel}: ${step.name}`;
-      const inner = document.createElement("div");
-      inner.className = "thinking-content";
-      if (step.args) {
-        const pre = document.createElement("pre");
-        pre.className = "tool-call-args";
-        pre.textContent = step.args;
-        inner.appendChild(pre);
-      }
-      const resultEl = document.createElement("div");
-      resultEl.className = "tool-call-result";
-      resultEl.textContent = step.result ?? "";
-      inner.appendChild(resultEl);
-      toolBlock.appendChild(summary);
-      toolBlock.appendChild(inner);
-      container.appendChild(toolBlock);
+  const answerLabel = await translate("chat.answer");
+  const wrap = document.createElement("div");
+  wrap.className = "reasoning-step-wrap";
+  if (step.type === "thinking") {
+    const details = document.createElement("details");
+    details.className = "thinking-block";
+    details.open = false;
+    const summary = document.createElement("summary");
+    summary.textContent = reasoningLabel;
+    const thinkingContent = document.createElement("div");
+    thinkingContent.className = "thinking-content";
+    thinkingContent.textContent = step.text;
+    details.appendChild(summary);
+    details.appendChild(thinkingContent);
+    wrap.appendChild(details);
+  } else {
+    const toolBlock = document.createElement("details");
+    toolBlock.className = "thinking-block tool-call-block";
+    toolBlock.open = false;
+    const callTitle =
+      step.serverName != null && step.serverName !== ""
+        ? `${step.serverName}.${step.name}`
+        : step.name;
+    const summary = document.createElement("summary");
+    summary.textContent = `${toolCallLabel}: ${callTitle}`;
+    const inner = document.createElement("div");
+    inner.className = "thinking-content";
+    const argsStr = formatToolCallArgsMultiline(step.args ?? "");
+    if (argsStr) {
+      const argsEl = document.createElement("div");
+      argsEl.className = "tool-call-args";
+      argsEl.textContent = argsStr;
+      inner.appendChild(argsEl);
     }
+    const resultEl = document.createElement("div");
+    resultEl.className = "tool-call-result";
+    const resultText = step.result ?? "";
+    resultEl.textContent = resultText ? `${answerLabel}:\n${resultText}` : "";
+    inner.appendChild(resultEl);
+    toolBlock.appendChild(summary);
+    toolBlock.appendChild(inner);
+    wrap.appendChild(toolBlock);
   }
+  return wrap;
 }
 
 function addMessageToChat(message: ChatMessage, options?: { skipSave?: boolean }) {
@@ -154,11 +175,21 @@ async function renderMessages() {
     content.className = "message-content";
 
     const isStreamingThis = msg.role === "assistant" && i === streamingAssistantIndex;
+    const wrap = document.createElement("div");
+    wrap.className = "message-wrap";
+    const inner = document.createElement("div");
+    inner.className = "message-inner";
 
     if (msg.role === "assistant" && isStreamingThis) {
+      for (const step of streamingReasoningSteps) {
+        const stepDiv = document.createElement("div");
+        stepDiv.className = "message reasoning-step";
+        const stepEl = await buildReasoningStepElement(step);
+        stepDiv.appendChild(stepEl);
+        messagesContainer.appendChild(stepDiv);
+      }
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
-      await appendReasoningSteps(bubble, streamingReasoningSteps);
       const parsed = parseThinkBuffer(streamingBuffer);
       const hasThinking = (parsed.thinking?.length ?? 0) > 0;
       const hasAnswer = (parsed.answer?.length ?? 0) > 0;
@@ -181,18 +212,24 @@ async function renderMessages() {
       if (!hasAnswer) answerContent.classList.add("message-answer-empty");
       if (hasAnswer) answerContent.textContent = parsed.answer ?? "";
       bubble.appendChild(answerContent);
-      messageDiv.appendChild(bubble);
+      inner.appendChild(bubble);
       streamingAnswerEl = answerContent;
     } else if (msg.role === "assistant" && (msg.reasoningSteps?.length ?? 0) > 0) {
+      for (const step of msg.reasoningSteps) {
+        const stepDiv = document.createElement("div");
+        stepDiv.className = "message reasoning-step";
+        const stepEl = await buildReasoningStepElement(step);
+        stepDiv.appendChild(stepEl);
+        messagesContainer.appendChild(stepDiv);
+      }
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
-      await appendReasoningSteps(bubble, msg.reasoningSteps);
       const contentDiv = document.createElement("div");
       contentDiv.className = "message-answer";
       const parsed = parseLlmResponse(msg.content);
       renderMarkdown(contentDiv, parsed.content);
       bubble.appendChild(contentDiv);
-      messageDiv.appendChild(bubble);
+      inner.appendChild(bubble);
       const sourceItems = createSourceListItems(parsed.sources);
       if (sourceItems.length > 0) {
         const sourcesContainer = document.createElement("div");
@@ -205,29 +242,23 @@ async function renderMessages() {
         sourceItems.forEach((item) => sourcesList.appendChild(item.element));
         sourcesContainer.appendChild(sourcesLabel);
         sourcesContainer.appendChild(sourcesList);
-        messageDiv.appendChild(sourcesContainer);
+        inner.appendChild(sourcesContainer);
       }
     } else if (msg.role === "assistant" && msg.thinking != null && msg.thinking !== "") {
+      const stepDiv = document.createElement("div");
+      stepDiv.className = "message reasoning-step";
+      const thinkingStep: ReasoningStep = { type: "thinking", text: msg.thinking };
+      const stepEl = await buildReasoningStepElement(thinkingStep);
+      stepDiv.appendChild(stepEl);
+      messagesContainer.appendChild(stepDiv);
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
-      const reasoningLabel = await translate("chat.reasoning");
-      const details = document.createElement("details");
-      details.className = "thinking-block";
-      details.open = false;
-      const summary = document.createElement("summary");
-      summary.textContent = reasoningLabel;
-      const thinkingContent = document.createElement("div");
-      thinkingContent.className = "thinking-content";
-      thinkingContent.textContent = msg.thinking;
-      details.appendChild(summary);
-      details.appendChild(thinkingContent);
-      bubble.appendChild(details);
       const contentDiv = document.createElement("div");
       contentDiv.className = "message-answer";
       const parsed = parseLlmResponse(msg.content);
       renderMarkdown(contentDiv, parsed.content);
       bubble.appendChild(contentDiv);
-      messageDiv.appendChild(bubble);
+      inner.appendChild(bubble);
       const sourceItems = createSourceListItems(parsed.sources);
       if (sourceItems.length > 0) {
         const sourcesContainer = document.createElement("div");
@@ -240,7 +271,7 @@ async function renderMessages() {
         sourceItems.forEach((item) => sourcesList.appendChild(item.element));
         sourcesContainer.appendChild(sourcesLabel);
         sourcesContainer.appendChild(sourcesList);
-        messageDiv.appendChild(sourcesContainer);
+        inner.appendChild(sourcesContainer);
       }
     } else {
       let messageContent = msg.content;
@@ -256,7 +287,7 @@ async function renderMessages() {
       } else {
         content.textContent = msg.content;
       }
-      messageDiv.appendChild(content);
+      inner.appendChild(content);
       if (sources.length > 0) {
         const sourcesContainer = document.createElement("div");
         sourcesContainer.className = "message-sources-container";
@@ -269,9 +300,11 @@ async function renderMessages() {
         sourceItems.forEach((item) => sourcesList.appendChild(item.element));
         sourcesContainer.appendChild(sourcesLabel);
         sourcesContainer.appendChild(sourcesList);
-        messageDiv.appendChild(sourcesContainer);
+        inner.appendChild(sourcesContainer);
       }
     }
+    wrap.appendChild(inner);
+    messageDiv.appendChild(wrap);
     messagesContainer.appendChild(messageDiv);
   }
   if (streamingAssistantIndex === null) {

@@ -102,7 +102,8 @@ describe("getEnabledMcpToolsWithMap", () => {
       expect(result.tools[0].function.name).toBe("get_weather");
       expect(result.toolToServer.get("get_weather")).toEqual({
         serverUrl: "http://localhost:8007/mcp",
-        headers: undefined
+        headers: undefined,
+        serverName: "example"
       });
       expect(result.toolToServer.get("search")).toBeDefined();
     }

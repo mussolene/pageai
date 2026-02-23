@@ -35,6 +35,7 @@ const DEFAULT_MCP_CONFIG = `{
 }`;
 
 export interface McpServerInfo {
+  /** Ключ сервера из настроек (mcpServers[key]). */
   name: string;
   url?: string;
   headers?: Record<string, string>;
@@ -77,9 +78,10 @@ export function parseMcpServersList(json: string): { servers: McpServerInfo[] } 
   const raw = data.mcpServers;
   if (!raw || typeof raw !== "object") return { servers: [] };
   const servers: McpServerInfo[] = [];
-  for (const name of Object.keys(raw)) {
-    const s = raw[name];
+  for (const key of Object.keys(raw)) {
+    const s = raw[key];
     if (s && typeof s === "object" && typeof s.url === "string" && s.url.trim()) {
+      const name = (key && String(key).trim()) || "mcp";
       servers.push({
         name,
         url: s.url.trim(),

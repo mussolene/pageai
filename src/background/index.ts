@@ -107,6 +107,7 @@ function buildSystemPromptWithToolStatus(
 /** Результат одного вызова инструмента для отображения в цепочке рассуждений. */
 export interface ToolCallResult {
   name: string;
+  serverName?: string;
   args: string;
   result: string;
 }
@@ -117,7 +118,7 @@ export interface ToolCallResult {
  */
 async function executeToolCallsAndAppendMessages(
   toolCalls: Array<{ id: string; name: string; arguments: string }>,
-  toolToServer: Map<string, { serverUrl: string; headers?: Record<string, string> }>,
+  toolToServer: Map<string, { serverUrl: string; headers?: Record<string, string>; serverName: string }>,
   messages: LlmMessageForApi[]
 ): Promise<ToolCallResult[]> {
   const assistantToolCalls = toolCalls.map((tc) => ({
@@ -154,7 +155,12 @@ async function executeToolCallsAndAppendMessages(
     );
     const content = "error" in callResult ? callResult.error : callResult.text;
     messages.push({ role: "tool", tool_call_id: tc.id, content });
-    results.push({ name: tc.name, args: argsStr, result: content });
+    results.push({
+      name: tc.name,
+      serverName: binding.serverName,
+      args: argsStr,
+      result: content
+    });
   }
   return results;
 }
@@ -212,9 +218,13 @@ async function runAgentStreamWithMcpTools(
     }
     const toolResults = await executeToolCallsAndAppendMessages(result.tool_calls, toolToServer, messages);
     for (const tr of toolResults) {
+      const serverName = (tr.serverName != null && String(tr.serverName).trim() !== "")
+        ? String(tr.serverName).trim()
+        : "mcp";
       const step: ReasoningStep = {
         type: "tool_call",
         name: tr.name,
+        serverName,
         args: tr.args || undefined,
         result: tr.result
       };

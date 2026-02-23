@@ -51,7 +51,7 @@ export interface SearchResult {
 /** Один шаг рассуждения: размышление модели или вызов инструмента (MCP). */
 export type ReasoningStep =
   | { type: "thinking"; text: string }
-  | { type: "tool_call"; name: string; args?: string; result?: string };
+  | { type: "tool_call"; name: string; serverName?: string; args?: string; result?: string };
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
