@@ -92,6 +92,16 @@ function safePortPost(port: chrome.runtime.Port, msg: object): void {
   }
 }
 
+/** Отправить в порт; возвращает false, если порт отключён (клиент закрыл окно). */
+function tryPortPost(port: chrome.runtime.Port, msg: object): boolean {
+  try {
+    port.postMessage(msg);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const MAX_AGENT_TOOL_ITERATIONS = 5;
 
 /** Базовый системный промпт для чата (без инструментов). */
@@ -311,33 +321,66 @@ async function runAgentWithMcpTools(
 
 const PING_RUNNER_URL = "ping-runner.html";
 
-/** Открыть маленькое невидимое окно для пингов в background (сбрасывает 30s idle таймер SW). */
-async function openStreamKeepaliveWindow(): Promise<number | null> {
+/** Открыть offscreen-документ для пингов (невидимый, сбрасывает 30s idle таймер SW). */
+async function openStreamKeepaliveOffscreen(): Promise<boolean> {
   try {
-    const w = await chrome.windows.create({
-      url: chrome.runtime.getURL(PING_RUNNER_URL),
-      type: "popup",
-      width: 1,
-      height: 1,
-      left: -9999,
-      top: -9999
+    const offscreenUrl = chrome.runtime.getURL(PING_RUNNER_URL);
+    const existing = await chrome.runtime.getContexts?.({
+      contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+      documentUrls: [offscreenUrl]
     });
-    return w?.id ?? null;
+    if (Array.isArray(existing) && existing.length > 0) return true;
+    await chrome.offscreen.createDocument({
+      url: PING_RUNNER_URL,
+      reasons: [chrome.offscreen.Reason.DOM_SCRAPING],
+      justification: "Keepalive for long-running chat stream"
+    });
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
+async function closeStreamKeepaliveOffscreen(): Promise<void> {
+  try {
+    await chrome.offscreen.closeDocument();
+  } catch {
+    /* уже закрыт или не открывался */
+  }
+}
+
+const CHAT_READY_NOTIFICATION_PREFIX = "pageai-chat-ready-";
+
 /** Показать уведомление о готовности ответа (popup был закрыт, ответ сохранён в чат). */
 function showChatReadyNotification(): void {
-  if (!chrome.notifications?.create) return;
-  chrome.notifications.create("pageai-chat-ready", {
+  const api = chrome.notifications;
+  if (!api?.create) return;
+  const id = CHAT_READY_NOTIFICATION_PREFIX + Date.now();
+  const iconUrl = chrome.runtime.getURL("icons/icon128.png");
+  const title = chrome.i18n.getMessage("notificationChatReadyTitle") || "PageAI";
+  const message = chrome.i18n.getMessage("notificationChatReadyBody") || "Answer is ready. Open the extension to view.";
+  const options: chrome.notifications.NotificationOptions<true> = {
     type: "basic",
-    iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-    title: chrome.i18n.getMessage("notificationChatReadyTitle") || "PageAI",
-    message: chrome.i18n.getMessage("notificationChatReadyBody") || "Answer is ready. Open the extension to view."
-  });
+    iconUrl,
+    title,
+    message,
+    priority: 1
+  };
+  try {
+    api.create(id, options, (createdId: string | undefined) => {
+      if (chrome.runtime.lastError) {
+        console.warn("[PageAI] Notification create failed:", chrome.runtime.lastError.message);
+      }
+    });
+  } catch (e) {
+    console.warn("[PageAI] Notification create threw:", e);
+  }
 }
+
+chrome.notifications.onClicked.addListener((notificationId: string) => {
+  if (!notificationId.startsWith(CHAT_READY_NOTIFICATION_PREFIX)) return;
+  chrome.action.openPopup?.();
+});
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "pageai-stream-keepalive") {
@@ -345,11 +388,7 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
   if (port.name !== "pageai-chat-stream") return;
-  let clientDisconnected = false;
   const abortController = new AbortController();
-  port.onDisconnect.addListener(() => {
-    clientDisconnected = true;
-  });
   port.onMessage.addListener((msg: { type: string; payload?: { text: string } }) => {
     if (msg.type === "ping") return;
     if (msg.type === "STOP_STREAM") {
@@ -363,9 +402,9 @@ chrome.runtime.onConnect.addListener((port) => {
     const queryText = msg.payload.text.trim();
 
     (async () => {
-      let keepaliveWindowId: number | null = null;
+      let keepaliveOffscreenOpened = false;
       try {
-        keepaliveWindowId = await openStreamKeepaliveWindow();
+        keepaliveOffscreenOpened = await openStreamKeepaliveOffscreen();
         if (!isQuestionAboutCurrentPage(queryText)) {
           const mcpLoaded = await getEnabledMcpToolsWithMap();
           const hasMcpTools = !("error" in mcpLoaded) && mcpLoaded.tools.length > 0;
@@ -393,8 +432,8 @@ chrome.runtime.onConnect.addListener((port) => {
             if (result.reasoningSteps.length > 0) {
               doneMessage.reasoningSteps = result.reasoningSteps;
             }
-            safePortPost(port, { type: "done", message: doneMessage });
-            if (clientDisconnected) {
+            const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
+            if (!sentMcp) {
               await storage.saveChatMessage(doneMessage);
               showChatReadyNotification();
             }
@@ -419,8 +458,8 @@ chrome.runtime.onConnect.addListener((port) => {
             timestamp: new Date().toISOString(),
             ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {})
           };
-          safePortPost(port, { type: "done", message: doneMsg });
-          if (clientDisconnected) {
+          const sentStream = tryPortPost(port, { type: "done", message: doneMsg });
+          if (!sentStream) {
             await storage.saveChatMessage(doneMsg);
             showChatReadyNotification();
           }
@@ -461,8 +500,8 @@ chrome.runtime.onConnect.addListener((port) => {
           sources: [{ title: currentPage.title, url: currentPage.url }]
         };
         safePortPost(port, { type: "chunk", text: summary.text });
-        safePortPost(port, { type: "done", message: chatResponse });
-        if (clientDisconnected) {
+        const sentSummary = tryPortPost(port, { type: "done", message: chatResponse });
+        if (!sentSummary) {
           await storage.saveChatMessage(chatResponse);
           showChatReadyNotification();
         }
@@ -470,12 +509,8 @@ chrome.runtime.onConnect.addListener((port) => {
         if ((error as Error).name === "AbortError") return;
         safePortPost(port, { type: "error", error: (error as Error).message });
       } finally {
-        if (keepaliveWindowId != null) {
-          try {
-            await chrome.windows.remove(keepaliveWindowId);
-          } catch {
-            /* окно уже закрыто */
-          }
+        if (keepaliveOffscreenOpened) {
+          await closeStreamKeepaliveOffscreen();
         }
       }
     })();

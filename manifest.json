@@ -9,7 +9,8 @@
     "activeTab",
     "windows",
     "scripting",
-    "notifications"
+    "notifications",
+    "offscreen"
   ],
   "action": {
     "default_title": "__MSG_appName__",

@@ -46,9 +46,9 @@
 ## Рекомендации для проекта
 
 1. **Долгий стрим (чат без MCP):** по возможности выполнять `fetch` и цикл `reader.read()` в контексте panel/popup (или offscreen document), а не в background — тогда лимит «30 с до первого байта» к стриму не применяется.
-2. **Окно keepalive для пингов:** при стриме в background открывается дополнительное маленькое прозрачное окно (`ping-runner.html`), которое раз в 15 с шлёт сообщения в background по порту `pageai-stream-keepalive`. Это сбрасывает 30-секундный idle-таймер service worker. Окно 1×1 px, вынесено за край экрана, не реагирует на клики; по окончании стрима закрывается. См. `openStreamKeepaliveWindow()` в background и `src/ui/ping-runner.html`.
+2. **Offscreen keepalive для пингов:** при стриме в background создаётся невидимый offscreen-документ (`ping-runner.html`), который раз в 15 с шлёт сообщения в background по порту `pageai-stream-keepalive`. Это сбрасывает 30-секундный idle-таймер service worker. Документ не создаёт окна и не показывается пользователю; по окончании стрима закрывается через `chrome.offscreen.closeDocument()`. См. `openStreamKeepaliveOffscreen()` в background и `src/ui/ping-runner.html`.
 3. **Состояние и история:** хранить в `chrome.storage` / IndexedDB, не в глобальных переменных background — они теряются при остановке worker’а.
-4. **Уведомление при закрытом popup:** если стрим идёт в background и popup закрыли — не прерывать стрим по `onDisconnect`; по завершении сохранять ответ в storage и показывать уведомление (см. текущую реализацию в background).
+4. **Уведомление при закрытом popup:** если стрим идёт в background и popup закрыли — не прерывать стрим по `onDisconnect`; по завершении сохранять ответ в storage и показывать уведомление (см. текущую реализацию в background). Если уведомления не появляются: проверьте разрешения для расширения в `chrome://settings/content/notifications` и системные настройки уведомлений ОС (macOS: Системные настройки → Уведомления → Chrome).
 5. **Тестирование:** проверять длинные запросы (thinking-модели, медленный ответ) в Chrome с открытой панелью и с закрытым popup.
 
 ---
