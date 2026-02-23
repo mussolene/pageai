@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../types/messages";
+import type { ChatMessage, ReasoningStep } from "../types/messages";
 import { translate, getStoredLocale } from "../i18n";
 import { Storage } from "../storage/indexdb";
 import { markdownToHtml, renderMarkdown } from "./markdown";
@@ -48,6 +48,7 @@ let streamingAssistantIndex: number | null = null;
 let streamingThinkingEl: HTMLDivElement | null = null;
 let streamingAnswerEl: HTMLDivElement | null = null;
 let streamingBuffer = "";
+let streamingReasoningSteps: ReasoningStep[] = [];
 let streamPort: chrome.runtime.Port | null = null;
 
 async function updatePlayStopButton(streaming: boolean): Promise<void> {
@@ -69,6 +70,48 @@ function parseThinkBuffer(buf: string): { thinking?: string; answer?: string } {
   const thinking = thinkOpen === -1 ? "" : buf.slice(thinkOpen + 7, thinkClose);
   const answer = buf.slice(thinkClose + 8);
   return { thinking, answer };
+}
+
+/** Добавляет в контейнер блоки для цепочки шагов рассуждения (размышления + вызовы MCP). */
+async function appendReasoningSteps(container: HTMLElement, steps: ReasoningStep[]): Promise<void> {
+  const reasoningLabel = await translate("chat.reasoning");
+  const toolCallLabel = await translate("chat.toolCall");
+  for (const step of steps) {
+    if (step.type === "thinking") {
+      const details = document.createElement("details");
+      details.className = "thinking-block";
+      details.open = false;
+      const summary = document.createElement("summary");
+      summary.textContent = reasoningLabel;
+      const thinkingContent = document.createElement("div");
+      thinkingContent.className = "thinking-content";
+      thinkingContent.textContent = step.text;
+      details.appendChild(summary);
+      details.appendChild(thinkingContent);
+      container.appendChild(details);
+    } else {
+      const toolBlock = document.createElement("details");
+      toolBlock.className = "thinking-block tool-call-block";
+      toolBlock.open = false;
+      const summary = document.createElement("summary");
+      summary.textContent = `${toolCallLabel}: ${step.name}`;
+      const inner = document.createElement("div");
+      inner.className = "thinking-content";
+      if (step.args) {
+        const pre = document.createElement("pre");
+        pre.className = "tool-call-args";
+        pre.textContent = step.args;
+        inner.appendChild(pre);
+      }
+      const resultEl = document.createElement("div");
+      resultEl.className = "tool-call-result";
+      resultEl.textContent = step.result ?? "";
+      inner.appendChild(resultEl);
+      toolBlock.appendChild(summary);
+      toolBlock.appendChild(inner);
+      container.appendChild(toolBlock);
+    }
+  }
 }
 
 function addMessageToChat(message: ChatMessage, options?: { skipSave?: boolean }) {
@@ -115,6 +158,7 @@ async function renderMessages() {
     if (msg.role === "assistant" && isStreamingThis) {
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
+      await appendReasoningSteps(bubble, streamingReasoningSteps);
       const parsed = parseThinkBuffer(streamingBuffer);
       const hasThinking = (parsed.thinking?.length ?? 0) > 0;
       const hasAnswer = (parsed.answer?.length ?? 0) > 0;
@@ -139,6 +183,30 @@ async function renderMessages() {
       bubble.appendChild(answerContent);
       messageDiv.appendChild(bubble);
       streamingAnswerEl = answerContent;
+    } else if (msg.role === "assistant" && (msg.reasoningSteps?.length ?? 0) > 0) {
+      const bubble = document.createElement("div");
+      bubble.className = "message-content message-bubble";
+      await appendReasoningSteps(bubble, msg.reasoningSteps);
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-answer";
+      const parsed = parseLlmResponse(msg.content);
+      renderMarkdown(contentDiv, parsed.content);
+      bubble.appendChild(contentDiv);
+      messageDiv.appendChild(bubble);
+      const sourceItems = createSourceListItems(parsed.sources);
+      if (sourceItems.length > 0) {
+        const sourcesContainer = document.createElement("div");
+        sourcesContainer.className = "message-sources-container";
+        const sourcesLabel = document.createElement("div");
+        sourcesLabel.className = "sources-label";
+        sourcesLabel.textContent = await translate("chat.sources");
+        const sourcesList = document.createElement("ul");
+        sourcesList.className = "sources-list md-list";
+        sourceItems.forEach((item) => sourcesList.appendChild(item.element));
+        sourcesContainer.appendChild(sourcesLabel);
+        sourcesContainer.appendChild(sourcesList);
+        messageDiv.appendChild(sourcesContainer);
+      }
     } else if (msg.role === "assistant" && msg.thinking != null && msg.thinking !== "") {
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
@@ -228,10 +296,17 @@ async function handleSendMessage() {
   addMessageToChat(userMessage);
   chatInput.value = "";
   streamingBuffer = "";
+  streamingReasoningSteps = [];
 
   const port = chrome.runtime.connect({ name: "pageai-chat-stream" });
   streamPort = port;
-  port.onMessage.addListener((m: { type: string; text?: string; error?: string; message?: ChatMessage }) => {
+  port.onMessage.addListener((m: { type: string; text?: string; error?: string; message?: ChatMessage; steps?: ReasoningStep[] }) => {
+    if (m.type === "reasoning_step" && Array.isArray(m.steps)) {
+      streamingReasoningSteps.push(...m.steps);
+      streamingBuffer = "";
+      void renderMessages();
+      return;
+    }
     if (m.type === "chunk" && typeof m.text === "string") {
       streamingBuffer += m.text;
       const parsed = parseThinkBuffer(streamingBuffer);
@@ -270,6 +345,7 @@ async function handleSendMessage() {
         addMessageToChat(m.message);
       }
       streamingBuffer = "";
+      streamingReasoningSteps = [];
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
@@ -297,6 +373,7 @@ async function handleSendMessage() {
       streamingThinkingEl = null;
       streamingAnswerEl = null;
       streamingBuffer = "";
+      streamingReasoningSteps = [];
       streamPort = null;
       void updatePlayStopButton(false);
       void renderMessages();
@@ -308,6 +385,7 @@ async function handleSendMessage() {
       streamingThinkingEl = null;
       streamingAnswerEl = null;
       streamingBuffer = "";
+      streamingReasoningSteps = [];
       void renderMessages();
     }
     streamPort = null;

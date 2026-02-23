@@ -440,6 +440,24 @@ body.standalone-window #app {
   overflow-y: auto;
 }
 
+.tool-call-block .thinking-content {
+  max-height: 120px;
+}
+
+.tool-call-args {
+  margin: 0 0 6px 0;
+  padding: 4px 6px;
+  font-size: 11px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+.tool-call-result {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .message-answer {
   margin-top: 2px;
 }

@@ -1,4 +1,4 @@
-import { MessageFromContent, MessageFromPanel, ChatMessage, ConfluencePage } from "../types/messages";
+import { MessageFromContent, MessageFromPanel, ChatMessage, ConfluencePage, type ReasoningStep } from "../types/messages";
 import { Storage } from "../storage/indexdb";
 import { summarizePages, chatWithLLM, chatWithLLMStream, chatWithLLMStreamWithTools, chatWithLLMOneRound, type LlmMessageForApi } from "../llm/client";
 import { getEnabledMcpToolsWithMap, type OpenAITool } from "../mcp/agent-tools";
@@ -104,14 +104,22 @@ function buildSystemPromptWithToolStatus(
   return basePrompt;
 }
 
+/** Результат одного вызова инструмента для отображения в цепочке рассуждений. */
+export interface ToolCallResult {
+  name: string;
+  args: string;
+  result: string;
+}
+
 /**
  * Выполнить один раунд вызовов MCP по tool_calls и добавить сообщения в массив.
+ * Возвращает список { name, args, result } для отображения в UI.
  */
 async function executeToolCallsAndAppendMessages(
   toolCalls: Array<{ id: string; name: string; arguments: string }>,
   toolToServer: Map<string, { serverUrl: string; headers?: Record<string, string> }>,
   messages: LlmMessageForApi[]
-): Promise<void> {
+): Promise<ToolCallResult[]> {
   const assistantToolCalls = toolCalls.map((tc) => ({
     id: tc.id,
     type: "function" as const,
@@ -122,15 +130,19 @@ async function executeToolCallsAndAppendMessages(
     content: null,
     tool_calls: assistantToolCalls
   });
+  const results: ToolCallResult[] = [];
   for (const tc of toolCalls) {
     const binding = toolToServer.get(tc.name);
+    const argsStr = tc.arguments?.trim() ?? "";
     if (!binding) {
-      messages.push({ role: "tool", tool_call_id: tc.id, content: `Error: unknown tool "${tc.name}"` });
+      const content = `Error: unknown tool "${tc.name}"`;
+      messages.push({ role: "tool", tool_call_id: tc.id, content });
+      results.push({ name: tc.name, args: argsStr, result: content });
       continue;
     }
     let args: Record<string, unknown> = {};
     try {
-      if (tc.arguments.trim()) args = JSON.parse(tc.arguments) as Record<string, unknown>;
+      if (argsStr) args = JSON.parse(tc.arguments) as Record<string, unknown>;
     } catch {
       // leave args {}
     }
@@ -142,17 +154,20 @@ async function executeToolCallsAndAppendMessages(
     );
     const content = "error" in callResult ? callResult.error : callResult.text;
     messages.push({ role: "tool", tool_call_id: tc.id, content });
+    results.push({ name: tc.name, args: argsStr, result: content });
   }
+  return results;
 }
 
 /**
  * Стриминг с MCP: цикл (стрим -> при tool_calls выполняем инструменты -> снова стрим) с передачей чанков в port.
+ * Отправляет reasoning_step после каждого раунда с tool_calls, чтобы UI сохранял все размышления и вызовы.
  */
 async function runAgentStreamWithMcpTools(
   userMessage: string,
   systemPrompt: string,
   port: chrome.runtime.Port
-): Promise<{ text: string; thinking?: string } | { error: string }> {
+): Promise<{ text: string; reasoningSteps: ReasoningStep[] } | { error: string }> {
   const loaded = await getEnabledMcpToolsWithMap();
   if ("error" in loaded) return { error: loaded.error };
   const { tools, toolToServer } = loaded;
@@ -163,12 +178,17 @@ async function runAgentStreamWithMcpTools(
       { systemPrompt: promptWithStatus, onChunk: (text) => safePortPost(port, { type: "chunk", text }) }
     );
     if ("error" in result) return result;
-    return { text: result.text, thinking: result.thinking };
+    const steps: ReasoningStep[] =
+      result.thinking != null && result.thinking !== ""
+        ? [{ type: "thinking", text: result.thinking }]
+        : [];
+    return { text: result.text, reasoningSteps: steps };
   }
 
   const openAITools: OpenAITool[] = tools;
   const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
   let messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
+  const reasoningSteps: ReasoningStep[] = [];
 
   for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
     const result = await chatWithLLMStreamWithTools(messages, {
@@ -179,9 +199,29 @@ async function runAgentStreamWithMcpTools(
 
     if ("error" in result) return result;
     if (!("tool_calls" in result) || !result.tool_calls || result.tool_calls.length === 0) {
-      return { text: result.text, thinking: result.thinking };
+      if (result.thinking != null && result.thinking !== "") {
+        reasoningSteps.push({ type: "thinking", text: result.thinking });
+      }
+      return { text: result.text, reasoningSteps };
     }
-    await executeToolCallsAndAppendMessages(result.tool_calls, toolToServer, messages);
+
+    const roundSteps: ReasoningStep[] = [];
+    if (result.thinking != null && result.thinking !== "") {
+      reasoningSteps.push({ type: "thinking", text: result.thinking });
+      roundSteps.push({ type: "thinking", text: result.thinking });
+    }
+    const toolResults = await executeToolCallsAndAppendMessages(result.tool_calls, toolToServer, messages);
+    for (const tr of toolResults) {
+      const step: ReasoningStep = {
+        type: "tool_call",
+        name: tr.name,
+        args: tr.args || undefined,
+        result: tr.result
+      };
+      reasoningSteps.push(step);
+      roundSteps.push(step);
+    }
+    safePortPost(port, { type: "reasoning_step", steps: roundSteps });
   }
 
   return { error: "Agent reached max tool iterations without final answer" };
@@ -256,15 +296,15 @@ chrome.runtime.onConnect.addListener((port) => {
               safePortPost(port, { type: "error", error: result.error });
               return;
             }
-            safePortPost(port, {
-              type: "done",
-              message: {
-                role: "assistant",
-                content: result.text,
-                timestamp: new Date().toISOString(),
-                ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {})
-              }
-            });
+            const doneMessage: ChatMessage = {
+              role: "assistant",
+              content: result.text,
+              timestamp: new Date().toISOString()
+            };
+            if (result.reasoningSteps.length > 0) {
+              doneMessage.reasoningSteps = result.reasoningSteps;
+            }
+            safePortPost(port, { type: "done", message: doneMessage });
             return;
           }
 

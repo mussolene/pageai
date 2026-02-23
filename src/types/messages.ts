@@ -48,12 +48,19 @@ export interface SearchResult {
   score: number;
 }
 
+/** Один шаг рассуждения: размышление модели или вызов инструмента (MCP). */
+export type ReasoningStep =
+  | { type: "thinking"; text: string }
+  | { type: "tool_call"; name: string; args?: string; result?: string };
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
-  /** Размышления модели (блок think), если есть; отображаются сверху в сворачиваемом блоке */
+  /** Размышления модели (один блок think) — для обратной совместимости */
   thinking?: string;
+  /** Цепочка шагов рассуждения: размышления и вызовы инструментов (сохраняются все раунды) */
+  reasoningSteps?: ReasoningStep[];
   sources?: Array<{ title: string; url: string }>;
 }
 
