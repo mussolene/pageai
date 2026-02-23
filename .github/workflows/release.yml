@@ -1,0 +1,76 @@
+# Релизы по тегам: при пуше тега v* собирается расширение и создаётся GitHub Release
+# с историей изменений из Conventional Commits (feat, fix, docs, chore и т.д.)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install and verify
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Prepare release assets
+        run: |
+          cd dist && zip -r ../dist.zip . && cd ..
+          echo "PACKAGE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Generate changelog from Conventional Commits
+        id: changelog
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -z "$PREV" ]; then
+            PREV=$(git rev-list --max-parents=0 HEAD)
+          fi
+          FEAT=$(git log "$PREV..HEAD" --no-merges --pretty=format:"- %s (%h)" | grep -E "^\- feat" || true)
+          FIX=$(git log "$PREV..HEAD" --no-merges --pretty=format:"- %s (%h)" | grep -E "^\- fix" || true)
+          DOCS=$(git log "$PREV..HEAD" --no-merges --pretty=format:"- %s (%h)" | grep -E "^\- docs" || true)
+          CHORE=$(git log "$PREV..HEAD" --no-merges --pretty=format:"- %s (%h)" | grep -E "^\- (chore|refactor|style|perf|test|ci|build)" || true)
+          OTHER=$(git log "$PREV..HEAD" --no-merges --pretty=format:"- %s (%h)" | grep -vE "^\- (feat|fix|docs|chore|refactor|style|perf|test|ci|build)" || true)
+
+          {
+            echo "## What's Changed"
+            [ -n "$FEAT" ] && { echo ""; echo "### Features"; echo "$FEAT"; }
+            [ -n "$FIX" ] && { echo ""; echo "### Bug Fixes"; echo "$FIX"; }
+            [ -n "$DOCS" ] && { echo ""; echo "### Documentation"; echo "$DOCS"; }
+            [ -n "$CHORE" ] && { echo ""; echo "### Other"; echo "$CHORE"; }
+            [ -n "$OTHER" ] && { echo ""; echo "### Other commits"; echo "$OTHER"; }
+            if [ -z "$FEAT" ] && [ -z "$FIX" ] && [ -z "$DOCS" ] && [ -z "$CHORE" ] && [ -z "$OTHER" ]; then
+              echo ""
+              echo "(No conventional commits in range; see full diff for details.)"
+            fi
+          } > release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ env.PACKAGE_VERSION }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+          files: dist.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

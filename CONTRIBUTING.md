@@ -1,9 +1,41 @@
 # Contributing
 
+## Conventional Commits
+
+В проекте используются [Conventional Commits](https://www.conventionalcommits.org/). Сообщения коммитов формируют историю релизов: при создании тега `v*` GitHub Action собирает список изменений по типам и добавляет его в описание релиза.
+
+**Формат**: `<type>(<scope>): <description>`
+
+**Типы** (основные):
+
+| Тип       | Описание |
+|----------|----------|
+| `feat`   | Новая фича |
+| `fix`    | Исправление бага |
+| `docs`   | Только документация (README, комментарии) |
+| `chore`  | Обслуживание (зависимости, конфиг, скрипты) |
+| `refactor` | Рефакторинг без изменения поведения |
+| `style`  | Стиль кода (форматирование, пробелы) |
+| `perf`   | Улучшение производительности |
+| `test`   | Добавление/изменение тестов |
+| `ci` / `build` | CI/CD или сборка |
+
+**Примеры**:
+
+```
+feat(ui): add space selector dropdown
+fix(api): handle empty search results
+docs: add release workflow to README
+chore(deps): update esbuild to 0.27
+```
+
+Опционально в конце тела коммита: `BREAKING CHANGE: описание` — для мажорных изменений.
+
 ## Workflow разработки
 
 1. **Ветки**: фичи в `feature/short-name`, баги в `fix/short-name`.
-2. **Перед коммитом**: `npm run lint`, `npm test` и `npm run build` должны проходить.
+2. **Коммиты**: в формате Conventional Commits (см. выше).
+3. **Перед коммитом**: `npm run lint`, `npm test` и `npm run build` должны проходить.
 3. **Секреты**: не коммитить реальные API-токены, пароли, ключи. Использовать `.env` (в .gitignore) и моки в `tests/mocks/`.
 4. **Документация**: архитектурные решения и техдолг — в `docs/` (TECH_DEBT.md, CODE_REVIEW.md). Сессионные отчёты можно хранить в `docs/sessions/`.
 

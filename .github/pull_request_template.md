@@ -1,6 +1,7 @@
 ## Summary
 
 - Что изменено в этом PR?
+- Коммиты в PR желательно в формате [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:` и т.д.) — из них формируется история в релизах.
 
 ## Motivation and Context
 
