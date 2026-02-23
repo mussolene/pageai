@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Предложить улучшение Confluence AI Extension
+about: Предложить улучшение PageAI
 labels: enhancement
 ---
 

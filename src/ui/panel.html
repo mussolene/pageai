@@ -1,51 +1,93 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Confluence AI Search</title>
-    <link rel="stylesheet" href="panel.css" />
-  </head>
-  <body>
-    <div id="app">
-      <header class="header">
-        <h1 class="title">Confluence AI Search</h1>
-        <p class="subtitle">Local-first search &amp; summaries</p>
-      </header>
 
-      <section class="config">
-        <details>
-          <summary>LLM config (local endpoint)</summary>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PageAI</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+
+<body>
+  <div id="app">
+    <header class="header">
+      <h1 class="title">Page AI</h1>
+      <p class="subtitle">Chat with current page</p>
+    </header>
+
+    <nav class="tab-bar" role="tablist">
+      <button type="button" id="tab-chat" class="tab-btn tab-btn-active" role="tab" aria-selected="true">Chat</button>
+      <button type="button" id="tab-settings" class="tab-btn" role="tab" aria-selected="false">Settings</button>
+    </nav>
+
+    <div id="chat-container" class="chat-container tab-panel">
+      <div id="messages" class="messages"></div>
+      <div class="chat-input-container">
+        <div class="chat-input-box">
+          <textarea id="chat-input" placeholder="Ask about this page..." rows="2"></textarea>
+          <div class="chat-input-footer">
+            <select id="chat-model-select" class="model-inline" aria-label="Model" title="Model"></select>
+            <button type="button" id="send-button" class="play-stop-btn" aria-label="Send" title="Send">▶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings-panel" class="settings-panel tab-panel hidden">
+      <div class="settings-content">
           <label>
-            Endpoint
-            <input id="llm-endpoint" type="text" placeholder="http://localhost:11434/v1/chat/completions" />
+            <span class="label-text">Endpoint type</span>
+            <select id="llm-endpoint-type" aria-label="Endpoint type">
+              <option value="chat">Chat (OpenAI-compatible)</option>
+              <option value="custom">Custom URL</option>
+            </select>
           </label>
           <label>
-            Model
+            <span class="label-text">LLM Endpoint</span>
+            <input id="llm-endpoint" type="text" placeholder="http://localhost:1234" />
+          </label>
+          <label>
+            <span class="label-text">Model</span>
             <input id="llm-model" type="text" placeholder="llama3.1" />
           </label>
           <label>
-            API key (optional)
+            <span class="label-text">API Key (optional)</span>
             <input id="llm-api-key" type="password" />
           </label>
-          <button id="llm-save">Save</button>
+          <label>
+            <span class="label-text">Max tokens</span>
+            <input id="llm-max-tokens" type="number" min="128" max="32768" placeholder="2048" />
+          </label>
+          <div class="settings-row">
+            <button id="llm-fetch-models" type="button" class="secondary">Fetch models</button>
+            <select id="llm-model-select" class="model-select" aria-label="Choose model"></select>
+          </div>
+          <button id="llm-save">Save LLM Config</button>
           <span id="llm-status" class="status"></span>
-        </details>
-      </section>
-
-      <section class="search">
-        <input id="search-input" type="search" placeholder="Search indexed Confluence pages..." />
-        <button id="search-button">Search</button>
-      </section>
-
-      <section id="results" class="results"></section>
-
-      <section class="summary">
-        <button id="summarize-button" disabled>Summarize selected</button>
-        <textarea id="summary-output" readonly></textarea>
-      </section>
+          <hr class="settings-sep" />
+          <label>
+            <span class="label-text">Theme</span>
+            <select id="theme-select" aria-label="Theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <hr class="settings-sep" />
+          <label>
+            <span class="label-text">MCP servers (JSON)</span>
+            <textarea id="mcp-servers-config" rows="12" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
+          </label>
+          <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
+          <div class="settings-row">
+            <button id="mcp-check" type="button" class="secondary">Check MCP</button>
+            <span id="mcp-status" class="status"></span>
+          </div>
+      </div>
     </div>
+  </div>
 
-    <script type="module" src="panel.js"></script>
-  </body>
-  </html>
+  <script type="module" src="panel.js"></script>
+</body>
 
+</html>

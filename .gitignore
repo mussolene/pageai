@@ -1,12 +1,29 @@
 node_modules
 dist
+coverage
+
+# OS
 .DS_Store
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-lock.yaml
+pnpm-debug.log*
 *.log
+
+# Editor/IDE
 .idea
 .vscode/*
 !.vscode/extensions.json
 
+# Env / config
+.env
+.env.local
+.env.*.local
+.continue/*
+
+# Misc
+*.swp
+*.swo
+Thumbs.db

@@ -1,0 +1,42 @@
+[
+    {
+        "username": "testuser",
+        "userKey": "testuser",
+        "name": "Test User",
+        "displayName": "Test User",
+        "email": "test@example.com",
+        "type": "known",
+        "avatarUrl": "https://example.com/avatar/testuser.jpg",
+        "profileUrl": "https://confluence.example.com/display/~testuser"
+    },
+    {
+        "username": "jdoe",
+        "userKey": "jdoe",
+        "name": "John Doe",
+        "displayName": "John Doe",
+        "email": "john.doe@example.com",
+        "type": "known",
+        "avatarUrl": "https://example.com/avatar/jdoe.jpg",
+        "profileUrl": "https://confluence.example.com/display/~jdoe"
+    },
+    {
+        "username": "jsmith",
+        "userKey": "jsmith",
+        "name": "John Smith",
+        "displayName": "John Smith",
+        "email": "john.smith@example.com",
+        "type": "known",
+        "avatarUrl": "https://example.com/avatar/jsmith.jpg",
+        "profileUrl": "https://confluence.example.com/display/~jsmith"
+    },
+    {
+        "username": "amiller",
+        "userKey": "amiller",
+        "name": "Alice Miller",
+        "displayName": "Alice Miller",
+        "email": "alice.miller@example.com",
+        "type": "known",
+        "avatarUrl": "https://example.com/avatar/amiller.jpg",
+        "profileUrl": "https://confluence.example.com/display/~amiller"
+    }
+]

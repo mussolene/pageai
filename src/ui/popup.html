@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Page AI</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+
+<body>
+  <div id="app">
+    <header class="header header-with-actions">
+      <h1 class="title">Page AI</h1>
+      <p class="subtitle" id="subtitle">Chat with current page</p>
+      <button type="button" id="popup-expand-btn" class="popup-expand-btn" title="Open in resizable window" aria-label="Open in window">↗</button>
+    </header>
+
+    <nav class="tab-bar" role="tablist">
+      <button type="button" id="tab-chat" class="tab-btn tab-btn-active" role="tab" aria-selected="true">Chat</button>
+      <button type="button" id="tab-settings" class="tab-btn" role="tab" aria-selected="false">Settings</button>
+    </nav>
+
+    <div id="chat-container" class="chat-container tab-panel">
+      <div id="messages" class="messages"></div>
+      <div class="chat-input-container">
+        <div class="chat-input-box">
+          <textarea id="chat-input" placeholder="Ask about this page..." rows="2"></textarea>
+          <div class="chat-input-footer">
+            <select id="chat-model-select" class="model-inline" aria-label="Model" title="Model"></select>
+            <button type="button" id="send-button" class="play-stop-btn" aria-label="Send" title="Send">▶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings-panel" class="settings-panel tab-panel hidden">
+      <div class="settings-content">
+          <label>
+            <span class="label-text">Endpoint type</span>
+            <select id="llm-endpoint-type" aria-label="Endpoint type">
+              <option value="chat">Chat (OpenAI-compatible)</option>
+              <option value="custom">Custom URL</option>
+            </select>
+          </label>
+          <label>
+            <span class="label-text">LLM Endpoint</span>
+            <input id="llm-endpoint" type="text" placeholder="http://localhost:1234" />
+          </label>
+          <label>
+            <span class="label-text">Model</span>
+            <input id="llm-model" type="text" placeholder="qwen/qwen3-4b-2507" />
+          </label>
+          <div class="settings-row">
+            <button id="llm-fetch-models" type="button" class="secondary">Fetch models</button>
+            <select id="llm-model-select" class="model-select" aria-label="Choose model"></select>
+          </div>
+          <label>
+            <span class="label-text">API Key (optional)</span>
+            <input id="llm-api-key" type="password" />
+          </label>
+          <label>
+            <span class="label-text">Max tokens</span>
+            <input id="llm-max-tokens" type="number" min="128" max="32768" placeholder="2048" />
+          </label>
+          <button id="llm-save">Save LLM Config</button>
+          <span id="llm-status" class="status"></span>
+          <hr class="settings-sep" />
+          <label>
+            <span class="label-text">Theme</span>
+            <select id="theme-select" aria-label="Theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <hr class="settings-sep" />
+          <label>
+            <span class="label-text">MCP servers (JSON)</span>
+            <textarea id="mcp-servers-config" rows="10" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
+          </label>
+          <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
+          <div class="settings-row">
+            <button id="mcp-check" type="button" class="secondary">Check MCP</button>
+            <span id="mcp-status" class="status"></span>
+          </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+
+</html>

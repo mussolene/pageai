@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Сообщить об ошибке в Confluence AI Extension
+about: Сообщить об ошибке в PageAI
 labels: bug
 ---
 

@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Page AI",
+    "description": "Extension name"
+  },
+  "appDescription": {
+    "message": "Local-first AI assistant for any webpage. Chat with any page, get summaries and answers. No data leaves your machine.",
+    "description": "Extension description"
+  }
+}

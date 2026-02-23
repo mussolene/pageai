@@ -2,38 +2,65 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Confluence AI Extension – Options</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PageAI – Options</title>
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
     <div id="app">
       <header class="header">
-        <h1 class="title">Confluence AI – Options</h1>
-        <p class="subtitle">Configure local LLM endpoint</p>
+        <h1 class="title">PageAI – Options</h1>
+        <p class="subtitle">Configure LLM and MCP</p>
       </header>
 
-      <section class="config">
+      <section id="settings-panel" class="settings-panel">
         <details open>
-          <summary>LLM config (local endpoint)</summary>
-          <label>
-            Endpoint
-            <input id="llm-endpoint" type="text" placeholder="http://localhost:11434/v1/chat/completions" />
-          </label>
-          <label>
-            Model
-            <input id="llm-model" type="text" placeholder="llama3.1" />
-          </label>
-          <label>
-            API key (optional)
-            <input id="llm-api-key" type="password" />
-          </label>
-          <button id="llm-save">Save</button>
-          <span id="llm-status" class="status"></span>
+          <summary id="options-llm-summary">LLM (local endpoint)</summary>
+          <div class="settings-content">
+            <label>
+              <span class="label-text">Endpoint type</span>
+              <select id="llm-endpoint-type" aria-label="Endpoint type">
+                <option value="chat">Chat (OpenAI-compatible)</option>
+                <option value="custom">Custom URL</option>
+              </select>
+            </label>
+            <label>
+              <span class="label-text" id="options-endpoint-label">Endpoint</span>
+              <input id="llm-endpoint" type="text" placeholder="http://localhost:1234" />
+            </label>
+            <label>
+              <span class="label-text" id="options-model-label">Model</span>
+              <input id="llm-model" type="text" placeholder="qwen/qwen3-4b-2507" />
+            </label>
+            <div class="settings-row">
+              <button id="llm-fetch-models" type="button" class="secondary">Fetch models</button>
+              <select id="llm-model-select" class="model-select" aria-label="Choose model"></select>
+            </div>
+            <label>
+              <span class="label-text" id="options-apikey-label">API key (optional)</span>
+              <input id="llm-api-key" type="password" />
+            </label>
+            <button id="llm-save">Save</button>
+            <span id="llm-status" class="status"></span>
+          </div>
+        </details>
+        <details>
+          <summary id="options-mcp-summary">MCP servers (JSON)</summary>
+          <div class="settings-content">
+            <label>
+              <span class="label-text" id="options-mcp-label">MCP servers (JSON)</span>
+              <textarea id="mcp-servers-config" rows="14" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
+            </label>
+            <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
+            <div class="settings-row">
+              <button id="mcp-check" type="button" class="secondary">Check MCP</button>
+              <span id="mcp-status" class="status"></span>
+            </div>
+          </div>
         </details>
       </section>
     </div>
 
     <script type="module" src="options.js"></script>
   </body>
-  </html>
-
+</html>

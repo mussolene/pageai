@@ -1,0 +1,34 @@
+{
+    "pages": [
+        {
+            "id": "12345",
+            "title": "Getting Started with Confluence",
+            "spaceKey": "DOC",
+            "content": "# Getting Started with Confluence\n\nConfluence is a team workspace where knowledge comes together. Here's how to get started:\n\n## Creating Your First Page\n\n1. Navigate to your space\n2. Click 'Create' button\n3. Select 'Page'\n4. Add title and content\n5. Click 'Publish'\n\n## Best Practices\n\n- Use clear, descriptive titles\n- Organize content with headings\n- Link to related pages\n- Add labels for better discovery\n\n## Next Steps\n\nCheck out the [API Documentation](./12346) or [Architecture Overview](./12347) for more information.",
+            "version": 5,
+            "created": "2023-12-01T08:00:00Z",
+            "updated": "2024-01-15T10:30:00Z",
+            "author": "John Doe"
+        },
+        {
+            "id": "12346",
+            "title": "API Documentation",
+            "spaceKey": "DEV",
+            "content": "# API Documentation\n\n## Overview\n\nConfluence provides a comprehensive REST API for programmatic access to content and metadata.\n\n## Search API\n\n```bash\nGET /wiki/rest/api/search\n```\n\n**Parameters:**\n- `text` (required): Search query\n- `limit`: Number of results (default: 25, max: 100)\n- `spaceKey`: Filter by space\n- `type`: Content type (page, attachment, etc.)\n\n**Example:**\n\n```bash\ncurl -H 'Authorization: Bearer TOKEN' \\\n  'https://confluence.atlassian.net/wiki/rest/api/search?text=confluence&limit=10'\n```\n\n## Pages API\n\n```bash\nGET /wiki/rest/api/content/{pageId}\nPOST /wiki/rest/api/content\nPUT /wiki/rest/api/content/{pageId}\nDELETE /wiki/rest/api/content/{pageId}\n```\n\n## Authentication\n\nUse API token with Basic Auth or Bearer token in Authorization header.",
+            "version": 3,
+            "created": "2023-11-15T09:30:00Z",
+            "updated": "2024-01-10T15:45:00Z",
+            "author": "John Smith"
+        },
+        {
+            "id": "12347",
+            "title": "Architecture Overview",
+            "spaceKey": "ARCH",
+            "content": "# Architecture Overview\n\n## System Components\n\n### Content Scripts\n- Injected into web pages\n- Detect Confluence pages\n- Communicate with background service\n- Inject UI panel\n\n### Background Service Worker\n- Handle API requests\n- Manage authentication\n- Cache data\n- Process LLM requests\n\n### UI Panel\n- Render chat interface\n- Display responses\n- Handle user input\n- Show settings\n\n## Data Flow\n\n```\nUser Input → Content Script → Background Service → LLM/Confluence API\n  ↓\nResponse → UI Panel → IndexedDB (Storage) → Display to User\n```\n\n## Key Modules\n\n| Module | Purpose |\n|--------|----------|\n| `src/api/confluence.ts` | Confluence API client |\n| `src/llm/client.ts` | LM Studio integration |\n| `src/ui/panel.ts` | Chat UI |\n| `src/storage/indexdb.ts` | Data persistence |\n| `src/search/` | Search and ranking |",
+            "version": 2,
+            "created": "2023-12-20T14:00:00Z",
+            "updated": "2024-01-20T08:15:00Z",
+            "author": "Alice Miller"
+        }
+    ]
+}

@@ -74,3 +74,64 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// Обработка запроса текущей страницы от background
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "GET_CURRENT_PAGE") {
+    try {
+      const payload = buildPagePayload();
+      
+      // Проверяем, что это действительно страница Confluence
+      if (!payload.contentText || payload.contentText.trim().length === 0) {
+        sendResponse({ ok: false, error: "Could not extract content from this page" });
+        return;
+      }
+
+      // Сохраняем страницу в storage перед отправкой
+      chrome.runtime.sendMessage(
+        {
+          type: "PAGE_INDEX",
+          payload
+        },
+        () => {
+          sendResponse({ ok: true, page: payload });
+        }
+      );
+      return true; // Асинхронный ответ
+    } catch (error) {
+      sendResponse({ ok: false, error: (error as Error).message });
+      return false;
+    }
+  }
+});
+
+// Автоматически открываем side panel при попадании на Confluence (если поддерживается)
+async function openSidePanelIfNeeded() {
+  try {
+    const result = await chrome.storage.sync.get({
+      autoOpenPanel: true
+    });
+
+    if (result.autoOpenPanel) {
+      // Открываем панель через background script
+      chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" }, () => {
+        // Игнорируем ошибки, если панель не поддерживается (например, Yandex Browser)
+      });
+    }
+  } catch (err) {
+    // Игнорируем ошибки при открытии панели
+  }
+}
+
+// Открываем панель после небольшой задержки (чтобы страница успела загрузиться)
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    setTimeout(() => {
+      void openSidePanelIfNeeded();
+    }, 1000);
+  });
+} else {
+  setTimeout(() => {
+    void openSidePanelIfNeeded();
+  }, 1000);
+}
+

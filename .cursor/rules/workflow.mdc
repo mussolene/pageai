@@ -1,0 +1,13 @@
+---
+description: Workflow and rules for Confluence AI Extension
+globs: 
+alwaysApply: true
+---
+
+# Project rules
+
+- Follow **agent.md** for architecture: Local-first, Retrieval-first, BYOM, Zero backend. No cloud APIs by default.
+- Follow **AGENTS.md** for roles (Analyst → Developer → QA), DoD, and mock data in `tests/mocks/`.
+- Code: TypeScript, functional style, explicit types. Before commit run `npm run build` and `npm test`.
+- Docs: technical debt and code review notes in **docs/** (TECH_DEBT.md, CODE_REVIEW.md). Contributing: **CONTRIBUTING.md**.
+- MCP/agents setup: **docs/MCP_AND_AGENTS.md**.

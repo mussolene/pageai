@@ -1,21 +1,46 @@
 {
-  "name": "confluence-ai-extension",
+  "name": "page-ai",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first Chrome extension for smart search and summaries in Confluence.",
+  "description": "Local-first Chrome extension for AI chat on any page (Confluence, etc.) with your own LLM.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mussolene/pageai.git"
+  },
+  "homepage": "https://github.com/mussolene/pageai#readme",
+  "bugs": {
+    "url": "https://github.com/mussolenepageai/issues"
+  },
+  "keywords": [
+    "chrome-extension",
+    "confluence",
+    "llm",
+    "local-first",
+    "lm-studio",
+    "ollama"
+  ],
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
     "build": "NODE_ENV=production node ./scripts/dev.mjs --prod",
-    "lint": "echo \"No linter configured yet\"",
-    "test": "echo \"No automated tests yet\""
+    "lint": "eslint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0",
+    "@eslint/js": "^10.0.1",
     "@types/chrome": "^0.0.273",
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.0",
+    "esbuild": "^0.27.3",
+    "eslint": "^10.0.1",
+    "jsdom": "^25.0.0",
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^2.1.0"
   }
 }

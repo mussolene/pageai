@@ -1,0 +1,46 @@
+[
+    {
+        "id": "12345",
+        "key": "DOC",
+        "name": "Documentation",
+        "type": "page",
+        "title": "Getting Started with Confluence",
+        "excerpt": "Learn the basics of Confluence and how to create pages, spaces, and collaborate with your team.",
+        "lastModified": "2024-01-15T10:30:00Z",
+        "author": "John Doe",
+        "url": "https://confluence.example.com/pages/viewpage.action?pageId=12345"
+    },
+    {
+        "id": "12346",
+        "key": "DEV",
+        "name": "Development",
+        "type": "page",
+        "title": "API Documentation",
+        "excerpt": "Complete REST API reference for Confluence Cloud. Includes endpoints for pages, spaces, comments, and search.",
+        "lastModified": "2024-01-10T15:45:00Z",
+        "author": "John Smith",
+        "url": "https://confluence.example.com/pages/viewpage.action?pageId=12346"
+    },
+    {
+        "id": "12347",
+        "key": "ARCH",
+        "name": "Architecture",
+        "type": "page",
+        "title": "Architecture Overview",
+        "excerpt": "System architecture and module organization. Describes the flow from content scripts to background service workers.",
+        "lastModified": "2024-01-20T08:15:00Z",
+        "author": "Alice Miller",
+        "url": "https://confluence.example.com/pages/viewpage.action?pageId=12347"
+    },
+    {
+        "id": "12348",
+        "key": "PROD",
+        "name": "Product",
+        "type": "page",
+        "title": "Product Requirements",
+        "excerpt": "Project requirements, roadmap, and feature specifications for the Confluence AI Extension.",
+        "lastModified": "2024-01-18T13:20:00Z",
+        "author": "Sarah Johnson",
+        "url": "https://confluence.example.com/pages/viewpage.action?pageId=12348"
+    }
+]
