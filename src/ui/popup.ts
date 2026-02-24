@@ -286,7 +286,7 @@ async function renderMessages() {
         mdDiv.innerHTML = contentWithCitations;
         renderMarkdown(content, messageContent);
       } else {
-        content.textContent = msg.content;
+        renderMarkdown(content, msg.content);
       }
       inner.appendChild(content);
       if (sources.length > 0) {
