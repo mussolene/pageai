@@ -1,5 +1,10 @@
 import { buildPagePayload } from "./page-extractor";
 
+/** True if extension was reloaded and this content script instance is orphaned. */
+function isContextInvalidated(err: unknown): boolean {
+  return err instanceof Error && err.message === "Extension context invalidated";
+}
+
 async function indexCurrentPage(): Promise<void> {
   const payload = buildPagePayload();
 
@@ -7,13 +12,17 @@ async function indexCurrentPage(): Promise<void> {
   if (content.length < 10) return;
 
   await new Promise<void>((resolve) => {
-    chrome.runtime.sendMessage(
-      {
-        type: "PAGE_INDEX",
-        payload
-      },
-      () => resolve()
-    );
+    try {
+      chrome.runtime.sendMessage(
+        { type: "PAGE_INDEX", payload },
+        () => resolve()
+      );
+    } catch (err) {
+      if (isContextInvalidated(err)) {
+        /* Extension reloaded; do nothing. */
+      }
+      resolve();
+    }
   });
 }
 
@@ -41,34 +50,43 @@ document.addEventListener("visibilitychange", () => {
 
 // Обработка запроса текущей страницы от background
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === "GET_CURRENT_PAGE") {
-    try {
-      const payload = buildPagePayload();
-      const content = payload.contentText?.trim() ?? "";
-      // Минимальный контент для анализа (работаем на любых страницах, не только wiki)
-      if (content.length < 10) {
-        sendResponse({
-          ok: false,
-          error: "This page has very little text to analyze. Try a page with more content."
-        });
-        return false;
+  if (message.type !== "GET_CURRENT_PAGE") return false;
+  try {
+    const payload = buildPagePayload();
+    const content = payload.contentText?.trim() ?? "";
+    if (content.length < 10) {
+      try {
+        sendResponse({ ok: false, error: "This page has very little text to analyze. Try a page with more content." });
+      } catch {
+        /* Extension context invalidated */
       }
-
-      // Сохраняем страницу в storage перед отправкой
-      chrome.runtime.sendMessage(
-        {
-          type: "PAGE_INDEX",
-          payload
-        },
-        () => {
-          sendResponse({ ok: true, page: payload });
-        }
-      );
-      return true; // Асинхронный ответ
-    } catch (error) {
-      sendResponse({ ok: false, error: (error as Error).message });
       return false;
     }
+    try {
+      chrome.runtime.sendMessage({ type: "PAGE_INDEX", payload }, () => {
+        try {
+          sendResponse({ ok: true, page: payload });
+        } catch {
+          /* Extension context invalidated */
+        }
+      });
+    } catch (err) {
+      if (!isContextInvalidated(err)) {
+        try {
+          sendResponse({ ok: false, error: (err as Error).message });
+        } catch {
+          /* Extension context invalidated */
+        }
+      }
+      return false;
+    }
+    return true;
+  } catch (error) {
+    try {
+      sendResponse({ ok: false, error: (error as Error).message });
+    } catch {
+      /* Extension context invalidated */
+    }
+    return false;
   }
-  return false;
 });
