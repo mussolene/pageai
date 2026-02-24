@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_appName__",
   "description": "__MSG_appDescription__",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "default_locale": "en",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
