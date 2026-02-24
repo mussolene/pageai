@@ -1,4 +1,4 @@
-import { MessageFromContent, MessageFromPanel, ChatMessage, ConfluencePage, type ReasoningStep } from "../types/messages";
+import { MessageFromContent, MessageFromPanel, ChatMessage, Page, type ReasoningStep } from "../types/messages";
 import { Storage } from "../storage/indexdb";
 import { summarizePages, chatWithLLM, chatWithLLMStream, chatWithLLMStreamWithTools, chatWithLLMOneRound, type LlmMessageForApi } from "../llm/client";
 import { buildSummaryPrompt } from "../llm/prompts";
@@ -43,7 +43,7 @@ function isQuestionAboutCurrentPage(text: string): boolean {
 
 interface GetCurrentPageResponse {
   ok: boolean;
-  page?: ConfluencePage;
+  page?: Page;
   error?: string;
 }
 

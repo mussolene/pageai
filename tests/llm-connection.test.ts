@@ -161,6 +161,13 @@ describe("getLMStudioModelsForEndpoint", () => {
     const r = await getLMStudioModelsForEndpoint("http://localhost:1234/v1/chat/completions");
     expect("models" in r && r.models).toEqual(["a", "c"]);
   });
+
+  it("returns error when fetch throws", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Network error"));
+    const r = await getLMStudioModelsForEndpoint("http://localhost:1234/v1/chat/completions");
+    expect("error" in r).toBe(true);
+    expect(r.error).toContain("Failed to get models");
+  });
 });
 
 describe("checkLmStudioHealth", () => {

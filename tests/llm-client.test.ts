@@ -4,9 +4,11 @@ import {
   getLMStudioModels,
   chatWithLLM,
   chatWithLLMStream,
+  chatWithLLMStreamWithTools,
   summarizePages,
   type LlmChatMessage,
-  type LlmChatOptions
+  type LlmChatOptions,
+  type LlmToolDef,
 } from "../src/llm/client";
 import mockLLMResponses from "../tests/mocks/llm-responses.json";
 
@@ -234,8 +236,7 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
     });
 
     it("should stream chunks and return full text", async () => {
-      const chunks = ["Hello", " ", "world"];
-      (global.fetch as any).mockResolvedValueOnce({
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         ok: true,
         body: {
           getReader: () => ({
@@ -255,6 +256,170 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
       expect(result).toHaveProperty("text");
       if ("text" in result) expect(result.text).toBe("Hello world");
       expect(onChunk).toHaveBeenCalledTimes(3);
+    });
+
+    it("should return error when response not ok", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        text: () => Promise.resolve("Server error body"),
+      });
+      const result = await chatWithLLMStream(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("error");
+      if ("error" in result) expect(result.error).toContain("500");
+    });
+
+    it("should return error when response has no body reader", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        body: undefined,
+      });
+      const result = await chatWithLLMStream(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("error");
+      if ("error" in result) expect(result.error).toContain("Streaming not supported");
+    });
+
+    it("should parse <think> and return thinking and text", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: vi.fn()
+              .mockResolvedValueOnce({
+                done: false,
+                value: new TextEncoder().encode(
+                  'data: {"choices":[{"delta":{"content":"<think>"}}]}\ndata: {"choices":[{"delta":{"content":"reasoning"}}]}\ndata: {"choices":[{"delta":{"content":"<"}}]}\ndata: {"choices":[{"delta":{"content":"/think>"}}]}\ndata: {"choices":[{"delta":{"content":"Answer"}}]}\n'
+                ),
+              })
+              .mockResolvedValueOnce({ done: true, value: undefined }),
+          }),
+        },
+      });
+      const result = await chatWithLLMStream(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("text");
+      if ("text" in result) {
+        expect(result.text).toContain("Answer");
+        expect(result.thinking).toBe("reasoning");
+      }
+    });
+  });
+
+  describe("chatWithLLMStreamWithTools", () => {
+    it("returns error when config is missing", async () => {
+      (global as unknown as { chrome: { storage: { sync: { get: (d: unknown, cb: (v: unknown) => void) => void } } } }).chrome.storage.sync.get = (_: unknown, cb: (v: unknown) => void) => cb({ llmEndpoint: "", llmModel: "" });
+      const result = await chatWithLLMStreamWithTools(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("error");
+    });
+
+    it("returns error when response not ok", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+        text: () => Promise.resolve("Forbidden"),
+      });
+      const result = await chatWithLLMStreamWithTools(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("error");
+      if ("error" in result) expect(result.error).toContain("403");
+    });
+
+    it("returns error when response has no body reader", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        body: undefined,
+      });
+      const result = await chatWithLLMStreamWithTools(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("error");
+      if ("error" in result) expect(result.error).toContain("Streaming not supported");
+    });
+
+    it("streams content and returns text without tool_calls", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: vi.fn()
+              .mockResolvedValueOnce({
+                done: false,
+                value: new TextEncoder().encode(
+                  'data: {"choices":[{"delta":{"content":"Hello"}}]}\ndata: {"choices":[{"delta":{"content":" world"}}]}\n'
+                ),
+              })
+              .mockResolvedValueOnce({ done: true, value: undefined }),
+          }),
+        },
+      });
+      const onChunk = vi.fn();
+      const result = await chatWithLLMStreamWithTools(
+        [{ role: "user", content: "Hi" }],
+        { onChunk }
+      );
+      expect("error" in result).toBe(false);
+      expect("text" in result).toBe(true);
+      if ("text" in result) expect(result.text).toBe("Hello world");
+      expect(onChunk).toHaveBeenCalled();
+    });
+
+    it("streams and returns tool_calls when present in stream", async () => {
+      const tools: LlmToolDef[] = [
+        { type: "function", function: { name: "get_weather", description: "Weather" } },
+      ];
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: vi.fn()
+              .mockResolvedValueOnce({
+                done: false,
+                value: new TextEncoder().encode(
+                  'data: {"choices":[{"delta":{"content":"Thinking"}}]}\n' +
+                  'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"get_weather","arguments":"{}"}}]}}]}\n'
+                ),
+              })
+              .mockResolvedValueOnce({ done: true, value: undefined }),
+          }),
+        },
+      });
+      const result = await chatWithLLMStreamWithTools(
+        [{ role: "user", content: "Weather?" }],
+        { tools, onChunk: () => {} }
+      );
+      expect("error" in result).toBe(false);
+      expect("tool_calls" in result).toBe(true);
+      if ("tool_calls" in result) {
+        expect(result.tool_calls).toHaveLength(1);
+        expect(result.tool_calls[0].name).toBe("get_weather");
+        expect(result.tool_calls[0].id).toBe("call_1");
+      }
+    });
+
+    it("returns error when fetch throws", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Network error"));
+      const result = await chatWithLLMStreamWithTools(
+        [{ role: "user", content: "Hi" }],
+        { onChunk: () => {} }
+      );
+      expect(result).toHaveProperty("error");
+      if ("error" in result) expect(result.error).toContain("LLM request error");
     });
   });
 

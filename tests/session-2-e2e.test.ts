@@ -51,7 +51,7 @@ describe('Session #2 E2E: Markdown Rendering in Chat', () => {
       const response = `To install the package, run:
 
 \`\`\`bash
-npm install @confluence/api
+npm install example-package
 \`\`\`
 
 Then import it in your code.`;
@@ -85,9 +85,9 @@ Then import it in your code.`;
 
     it('should render response with links to resources', () => {
       const response = `For more information, check these resources:
-- [Confluence API Documentation](https://developer.atlassian.com/cloud/confluence/rest/v2/)
-- [Getting Started Guide](https://confluence.example.com/wiki/spaces/GUIDE/pages)
-- [FAQ](https://confluence.example.com/wiki/spaces/FAQ)`;
+- [API Documentation](https://example.com/api)
+- [Getting Started Guide](https://example.com/guide)
+- [FAQ](https://example.com/faq)`;
 
       const msgDiv = document.createElement('div');
       msgDiv.className = 'message assistant';
@@ -143,7 +143,7 @@ The key parameter is **api_token**. Do not share this value with anyone.
 
 Use \`npm config set\` to set it:
 \`\`\`bash
-npm config set @confluence:api_token=your-token
+npm config set example:api_token=your-token
 \`\`\``;
 
       const msgDiv = document.createElement('div');
@@ -522,7 +522,7 @@ code block
       const llmResponse = `To install the package:
 
 \`\`\`bash
-npm install confluence-api
+npm install example-api
 \`\`\`
 
 Key features:

@@ -4,13 +4,12 @@ import {
   buildSummaryPrompt,
   buildSourceAwarePrompt,
 } from "../src/llm/prompts";
-import type { ConfluencePage } from "../src/types/messages";
+import type { Page } from "../src/types/messages";
 
 describe("buildChatSystemPrompt", () => {
-  it("returns non-empty string with Confluence and sources instructions", () => {
+  it("returns non-empty string with sources instructions", () => {
     const s = buildChatSystemPrompt();
     expect(s.length).toBeGreaterThan(0);
-    expect(s).toContain("Confluence");
     expect(s).toContain("Источники:");
     expect(s).toContain("---");
   });
@@ -18,7 +17,7 @@ describe("buildChatSystemPrompt", () => {
 
 describe("buildSummaryPrompt", () => {
   it("includes query when provided", () => {
-    const pages: ConfluencePage[] = [
+    const pages: Page[] = [
       {
         id: "1",
         url: "http://e.com/1",
@@ -36,7 +35,7 @@ describe("buildSummaryPrompt", () => {
   });
 
   it("uses default query when query is undefined", () => {
-    const pages: ConfluencePage[] = [
+    const pages: Page[] = [
       {
         id: "1",
         url: "u",
@@ -52,7 +51,7 @@ describe("buildSummaryPrompt", () => {
 
   it("slices page content to 4000 chars", () => {
     const long = "a".repeat(5000);
-    const pages: ConfluencePage[] = [
+    const pages: Page[] = [
       {
         id: "1",
         url: "u",

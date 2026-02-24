@@ -1,4 +1,4 @@
-import type { ConfluencePage, SearchResult } from "../types/messages";
+import type { Page, SearchResult } from "../types/messages";
 
 interface KeywordSearchOptions {
   limit?: number;
@@ -13,7 +13,7 @@ function tokenize(text: string): string[] {
 
 export function keywordSearch(
   query: string,
-  pages: ConfluencePage[],
+  pages: Page[],
   options: KeywordSearchOptions = {}
 ): SearchResult[] {
   const { limit = 20 } = options;

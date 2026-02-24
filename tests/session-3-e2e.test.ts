@@ -38,20 +38,20 @@ describe('Session #3 E2E: Source Links & Citations', () => {
       const response = `To get started, install the package:
 
 \`\`\`bash
-npm install @confluence/client
+npm install example-client
 \`\`\`
 
 Configure your API key and you're ready [1].
 
 ---
 Источники:
-1. [Getting Started Guide](https://confluence.example.com/wiki/spaces/DOC/pages/12345)`;
+1. [Getting Started Guide](https://example.com/docs/12345)`;
 
       const { content, sources } = parseLlmResponse(response);
 
       expect(sources).toHaveLength(1);
       expect(sources[0].title).toBe('Getting Started Guide');
-      expect(sources[0].url).toContain('confluence.example.com');
+      expect(sources[0].url).toContain('example.com');
       expect(content).toContain('install the package');
       expect(content).not.toContain('---');
       expect(content).not.toContain('Источники:');
@@ -59,8 +59,8 @@ Configure your API key and you're ready [1].
 
     it('should render sources as clickable list in chat', () => {
       const sources: Source[] = [
-        { id: 1, title: 'API Reference', url: 'https://confluence.example.com/api' },
-        { id: 2, title: 'Getting Started', url: 'https://confluence.example.com/start' },
+        { id: 1, title: 'API Reference', url: 'https://example.com/api' },
+        { id: 2, title: 'Getting Started', url: 'https://example.com/start' },
       ];
 
       const msgDiv = document.createElement('div');
@@ -86,8 +86,8 @@ Configure your API key and you're ready [1].
       expect(links).toHaveLength(2);
       expect(links[0].textContent).toBe('API Reference');
       expect(links[1].textContent).toBe('Getting Started');
-      expect((links[0] as HTMLAnchorElement).href).toContain('confluence.example.com/api');
-      expect((links[1] as HTMLAnchorElement).href).toContain('confluence.example.com/start');
+      expect((links[0] as HTMLAnchorElement).href).toContain('example.com/api');
+      expect((links[1] as HTMLAnchorElement).href).toContain('example.com/start');
     });
 
     it('should display sources in order with correct numbering', () => {
@@ -219,33 +219,29 @@ Configure your API key and you're ready [1].
     });
   });
 
-  describe('Integration with Real Confluence Pages', () => {
-    it('should handle confluence API response format', () => {
-      const response = `The Confluence REST API provides access to spaces and pages [1].
+  describe('Integration with API response format', () => {
+    it('should handle API response format with multiple sources', () => {
+      const response = `The REST API provides access to resources [1].
 
 Key features:
-- CRUD operations on pages
-- Space management
-- Comment and attachment handling [2]
-
-For authentication, use personal API tokens [3].
+- CRUD operations
+- Management endpoints
+- Authentication [2]
 
 ---
 Источники:
-1. [Confluence REST API Documentation](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-pages/)
-2. [Space Management](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-spaces/)
-3. [Authentication Guide](https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/)`;
+1. [REST API Documentation](https://example.com/api/pages)
+2. [Authentication Guide](https://example.com/api/auth)`;
 
       const { sources } = parseLlmResponse(response);
 
-      expect(sources).toHaveLength(3);
-      expect(sources[0].url).toContain('developer.atlassian.com');
-      expect(sources[1].url).toContain('spaces');
-      expect(sources[2].title).toContain('Authentication');
+      expect(sources).toHaveLength(2);
+      expect(sources[0].url).toContain('example.com');
+      expect(sources[1].title).toContain('Authentication');
     });
 
-    it('should preserve confluence URLs with complex query parameters', () => {
-      const response = `See [Getting Started](https://confluence.example.com/pages/viewpage.action?pageId=12345&spaceKey=DOC)`;
+    it('should preserve URLs with complex query parameters', () => {
+      const response = `See [Getting Started](https://example.com/docs?pageId=12345&spaceKey=DOC)`;
 
       const { sources } = parseLlmResponse(response);
 

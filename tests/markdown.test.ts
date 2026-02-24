@@ -45,10 +45,10 @@ describe('Markdown Parser', () => {
     });
 
     it('should parse links', () => {
-      const result = markdownToHtml('[Confluence](https://confluence.example.com)');
-      expect(result).toContain('<a href="https://confluence.example.com"');
+      const result = markdownToHtml('[Documentation](https://example.com/docs)');
+      expect(result).toContain('<a href="https://example.com/docs"');
       expect(result).toContain('md-link');
-      expect(result).toContain('Confluence');
+      expect(result).toContain('Documentation');
       expect(result).toContain('target="_blank"');
     });
 

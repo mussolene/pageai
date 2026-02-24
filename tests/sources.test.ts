@@ -137,8 +137,8 @@ See [API Guide](https://example.com/api-guide) for details.
 
 ---
 Источники:
-1. [REST API Reference](https://confluence.example.com/rest/api)
-2. [OAuth Setup](https://confluence.example.com/oauth)`;
+1. [REST API Reference](https://example.com/rest/api)
+2. [OAuth Setup](https://example.com/oauth)`;
 
       const result = parseLlmResponse(response);
       expect(result.content).toContain('API Overview');
@@ -396,8 +396,8 @@ For more details, check [2] the documentation.
 
 ---
 Источники:
-1. [Getting Started Guide](https://confluence.example.com/wiki/spaces/DOC/pages/12345)
-2. [API Reference](https://confluence.example.com/wiki/spaces/DEV/pages/67890)`;
+1. [Getting Started Guide](https://example.com/docs/12345)
+2. [API Reference](https://example.com/docs/67890)`;
 
       const result = parseLlmResponse(response);
       expect(result.sources).toHaveLength(2);

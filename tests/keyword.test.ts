@@ -1,13 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { keywordSearch } from "../src/search/keyword";
-import type { ConfluencePage } from "../src/types/messages";
+import type { Page } from "../src/types/messages";
 
-const page = (id: string, title: string, content: string): ConfluencePage => ({
+const page = (id: string, title: string, content: string): Page => ({
   id,
   url: `https://example.com/${id}`,
   title,
   contentText: content,
-  spaceKey: "DOC",
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 });
@@ -52,8 +51,8 @@ describe("keywordSearch", () => {
   });
 
   it("tokenizes and matches case-insensitively", () => {
-    const pages = [page("1", "CONFLUENCE Guide", "confluence basics")];
-    const results = keywordSearch("Confluence", pages);
+    const pages = [page("1", "User Guide", "guide basics")];
+    const results = keywordSearch("guide", pages);
     expect(results).toHaveLength(1);
     expect(results[0].score).toBeGreaterThan(0);
   });

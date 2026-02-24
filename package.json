@@ -2,7 +2,7 @@
   "name": "page-ai",
   "version": "0.3.0",
   "private": true,
-  "description": "Local-first Chrome extension for AI chat on any page (Confluence, etc.) with your own LLM.",
+  "description": "Local-first Chrome extension for AI chat on any page with your own LLM.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,7 +14,7 @@
   },
   "keywords": [
     "chrome-extension",
-    "confluence",
+    
     "llm",
     "local-first",
     "lm-studio",

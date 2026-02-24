@@ -1,4 +1,4 @@
-export interface ConfluencePage {
+export interface Page {
   id: string;
   url: string;
   title: string;
@@ -8,12 +8,7 @@ export interface ConfluencePage {
   contentText: string;
 }
 
-export interface PageIndexPayload extends ConfluencePage {}
-
-export interface SearchQueryPayload {
-  query: string;
-  spaceKey?: string;
-}
+export interface PageIndexPayload extends Page {}
 
 export interface SummarizePayload {
   pageIds: string[];
@@ -31,20 +26,16 @@ export type MessageFromContent =
 
 export type MessageFromPanel =
   | {
-      type: "SEARCH_QUERY";
-      payload: SearchQueryPayload;
-    }
-  | {
       type: "SUMMARIZE";
       payload: SummarizePayload;
     }
   | {
       type: "CHAT_MESSAGE_CURRENT_PAGE";
-      payload: { text: string; spaceKey?: string };
+      payload: { text: string };
     };
 
 export interface SearchResult {
-  page: ConfluencePage;
+  page: Page;
   score: number;
 }
 
@@ -63,4 +54,3 @@ export interface ChatMessage {
   reasoningSteps?: ReasoningStep[];
   sources?: Array<{ title: string; url: string }>;
 }
-

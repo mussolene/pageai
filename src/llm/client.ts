@@ -1,4 +1,4 @@
-import type { ConfluencePage, SummarizePayload } from "../types/messages";
+import type { Page, SummarizePayload } from "../types/messages";
 import { buildSummaryPrompt, buildChatSystemPrompt } from "./prompts";
 import { getCachedLlmResponse, setCachedLlmResponse } from "../storage/indexdb";
 
@@ -153,7 +153,7 @@ export async function checkLlmConnection(
 }
 
 export async function summarizePages(
-  pages: ConfluencePage[],
+  pages: Page[],
   payload: SummarizePayload
 ): Promise<{ text: string } | { error: string }> {
   const config = await getLlmConfig();

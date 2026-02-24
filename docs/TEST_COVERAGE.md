@@ -13,11 +13,11 @@ npm test           # все тесты (в т.ч. session-*, search-cache, llm-c
 npm run test:coverage   # только тесты, входящие в отчёт покрытия; пороги проверяются
 ```
 
-При `npm run test:coverage` из прогона исключены тесты, требующие DOM/IndexedDB или нестабильные по времени: `session-*.test.ts`, `search-cache.test.ts`, `llm-cache.test.ts`, `markdown.test.ts`. Их можно запускать отдельно: `npx vitest run tests/markdown.test.ts` (с jsdom).
+При `npm run test:coverage` из прогона исключены тесты, требующие DOM/IndexedDB или нестабильные по времени: `session-*.test.ts`, `llm-cache.test.ts`, `markdown.test.ts`. Их можно запускать отдельно: `npx vitest run tests/markdown.test.ts` (с jsdom).
 
 ## Что входит в отчёт покрытия
 
-- **Включено**: `src/api/confluence.ts`, `src/i18n/index.ts`, `src/llm/client.ts`, `src/llm/prompts.ts`, `src/mcp/client.ts`, `src/search/*`, `src/storage/spaces.ts`.
+- **Включено**: `src/i18n/index.ts`, `src/llm/client.ts`, `src/llm/prompts.ts`, `src/mcp/client.ts`, `src/search/*`.
 - **Исключено** (не считаются в порогах): типы, UI entry points (panel, popup, options), background, content scripts, `indexdb.ts`, `page-extractor.ts`, `markdown.ts`.
 
 ## Добавленные тесты
@@ -25,8 +25,6 @@ npm run test:coverage   # только тесты, входящие в отчё�
 - **mcp-client.test.ts** — `checkMcpConnection` (URL, протокол, fetch, JSON, таймаут).
 - **llm-connection.test.ts** — `checkLlmConnection`, `getLMStudioModelsForEndpoint`, `checkLmStudioHealth`.
 - **llm-prompts.test.ts** — `buildChatSystemPrompt`, `buildSummaryPrompt`, `buildSourceAwarePrompt`.
-- **confluence-api.test.ts** — `getConfluenceSpaces`, `testConfluenceConnection`, `searchConfluencePages` (с моками chrome и fetch, jsdom).
-- **storage-spaces.test.ts** — `getCachedSpaces`, `setCachedSpaces`, `getSelectedSpace`, `setSelectedSpace`, `getSpaceStats`, `clearSpacesCache`, `validateSpaceSelection`, `getSpaceByKey`, `getGlobalSpaces`, `getSpacesByType`.
 - **i18n.test.ts** — `getLocale`, `t`, `getStoredLocale`, `translate`, `setLocale`.
 - **rerank.test.ts**, **embedding.test.ts** — заглушки модулей.
 

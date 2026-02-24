@@ -30,6 +30,7 @@ export default defineConfig({
         "src/ui/popup.ts",
         "src/ui/options.ts",
         "src/ui/markdown.ts",
+        "src/ui/ping-runner.ts",
         "src/content/index.ts",
         "src/content/page-extractor.ts",
         "src/background/index.ts",

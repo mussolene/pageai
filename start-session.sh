@@ -149,42 +149,14 @@ setup_session_3() {
 }
 
 setup_session_4() {
-    print_header "Session #4: Кеширование результатов"
-    
-    echo "Модули для разработки:"
-    echo "  📝 src/storage/indexdb.ts (UPDATE)"
-    echo "  📝 src/api/confluence.ts (UPDATE)"
-    echo ""
-    
-    echo "Требования:"
-    echo "  ✓ Кеш результатов в IndexedDB с TTL"
-    echo "  ✓ Graceful fallback при offline"
-    echo "  ✓ Очищение кеша по команде"
-    echo "  ✓ Админ интерфейс управления кешем"
-    echo ""
-    
-    echo "TTL по умолчанию: 24 часа"
+    print_header "Session #4: (устарела — кеш поиска удалён, заменён MCP)"
+    echo "См. docs/SESSIONS.md"
     echo ""
 }
 
 setup_session_5() {
-    print_header "Session #5: Перечисление Confluence spaces"
-    
-    echo "Модули для разработки:"
-    echo "  📝 src/api/confluence.ts (UPDATE)"
-    echo "  📝 src/ui/panel.ts (UPDATE)"
-    echo ""
-    
-    echo "Требования:"
-    echo "  ✓ API call получает список spaces"
-    echo "  ✓ UI dropdown со spaces"
-    echo "  ✓ Сохранение выбора в localStorage"
-    echo "  ✓ Фильтрация поиска по space"
-    echo "  ✓ Default: 'All spaces'"
-    echo ""
-    
-    echo "Mock данные:"
-    echo "  📋 tests/mocks/confluence-spaces.json"
+    print_header "Session #5: (устарела — Confluence spaces удалены, заменены MCP)"
+    echo "См. docs/SESSIONS.md"
     echo ""
 }
 

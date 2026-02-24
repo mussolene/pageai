@@ -52,9 +52,9 @@ function extractTextFromPage(): string {
     '.entry',
     '.article-content',
     '[id="main-content"]',
-    '.ak-renderer-document', // Confluence
-    '.wiki-content', // Confluence
-    '#content' // Общий
+    '.ak-renderer-document',
+    '.wiki-content',
+    '#content'
   ];
 
   // Пробуем найти основной контент

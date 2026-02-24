@@ -2,7 +2,6 @@
 // These tests use mocked LM Studio responses from tests/mocks/llm-responses.json
 
 import mockLLMResponses from "../tests/mocks/llm-responses.json";
-import mockConfluenceData from "../tests/mocks/confluence-api-responses.json";
 
 describe("Session #1 E2E - LM Studio Integration", () => {
   // Test Checklist from SESSIONS.md
@@ -39,7 +38,7 @@ describe("Session #1 E2E - LM Studio Integration", () => {
 
   describe("✓ Chat отправляет запрос и получает ответ от LM Studio", () => {
     it("should send user message and receive LLM response", () => {
-      const userMessage = "What is Confluence?";
+      const userMessage = "What is this page about?";
       const expected = mockLLMResponses.responses[0].response;
 
       // Simulate chat sending message
@@ -63,7 +62,7 @@ describe("Session #1 E2E - LM Studio Integration", () => {
 
     it("should handle responses with sources", () => {
       const response = mockLMStudioResponse(
-        "Confluence is a platform.\n\n[API Documentation](https://example.com)"
+        "This is a platform.\n\n[API Documentation](https://example.com)"
       );
 
       expect(response.choices[0].message.content).toContain("[");

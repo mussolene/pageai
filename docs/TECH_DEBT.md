@@ -14,7 +14,6 @@
 | Пункт | Где | Действие |
 |-------|-----|----------|
 | Нет unit-тестов для background | src/background/index.ts | Добавить тесты с моками chrome.* и storage |
-| Нет unit-тестов для Confluence API | src/api/confluence.ts | Мок fetch + getConfig (chrome.storage) |
 | Нет unit-тестов для page-extractor | src/content/page-extractor.ts | Тесты в jsdom или вынести чистые функции (extractPageId) |
 | Нет unit-тестов для keyword search | src/search/keyword.ts | Чистые функции — добавить keyword.test.ts |
 | Дублирование panel.ts / popup.ts | src/ui/ | Вынести общую логику в shared модуль |

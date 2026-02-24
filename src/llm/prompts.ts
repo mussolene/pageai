@@ -1,11 +1,11 @@
-import type { ConfluencePage } from "../types/messages";
+import type { Page } from "../types/messages";
 
 export function buildChatSystemPrompt(): string {
-  return `Ты — умный помощник для работы с Confluence. 
+  return `Ты — умный помощник для работы с веб-страницами. 
 
 Твоя цель:
-- Помогать пользователям понимать содержимое страниц Confluence
-- Отвечать на вопросы о контенте в Wiki
+- Помогать пользователям понимать содержимое страниц
+- Отвечать на вопросы о контенте
 - Предоставлять четкие и структурированные ответы
 - Всегда указывать источники информации
 
@@ -21,13 +21,13 @@ export function buildChatSystemPrompt(): string {
 Пример:
 ---
 Источники:
-1. [Getting Started](https://confluence.example.com/pages/viewpage.action?pageId=123)
-2. [API Guide](https://confluence.example.com/pages/viewpage.action?pageId=456)`;
+1. [Getting Started](https://example.com/docs/start)
+2. [API Guide](https://example.com/docs/api)`;
 }
 
-export function buildSummaryPrompt(pages: ConfluencePage[], query?: string): string {
+export function buildSummaryPrompt(pages: Page[], query?: string): string {
   const header =
-    "Ты — помощник для чтения и суммаризации страниц Confluence. Твоя задача — делать краткую, точную выжимку и всегда указывать ссылки на использованные страницы.\n\n";
+    "Ты — помощник для чтения и суммаризации веб-страниц. Твоя задача — делать краткую, точную выжимку и всегда указывать ссылки на использованные страницы.\n\n";
 
   const queryPart = query
     ? `Запрос пользователя:\n${query}\n\n`
