@@ -1,6 +1,7 @@
 import { MessageFromContent, MessageFromPanel, ChatMessage, ConfluencePage, type ReasoningStep } from "../types/messages";
 import { Storage } from "../storage/indexdb";
 import { summarizePages, chatWithLLM, chatWithLLMStream, chatWithLLMStreamWithTools, chatWithLLMOneRound, type LlmMessageForApi } from "../llm/client";
+import { buildSummaryPrompt } from "../llm/prompts";
 import { getEnabledMcpToolsWithMap, type OpenAITool } from "../mcp/agent-tools";
 import { callMcpTool } from "../mcp/client";
 
@@ -411,104 +412,87 @@ chrome.runtime.onConnect.addListener((port) => {
       let keepaliveOffscreenOpened = false;
       try {
         keepaliveOffscreenOpened = await openStreamKeepaliveOffscreen();
-        if (!isQuestionAboutCurrentPage(queryText)) {
-          const mcpLoaded = await getEnabledMcpToolsWithMap();
-          const hasMcpTools = !("error" in mcpLoaded) && mcpLoaded.tools.length > 0;
-          const systemPrompt = buildSystemPromptWithToolStatus(
-            "error" in mcpLoaded ? { tools: [], mcpConfigured: false } : mcpLoaded,
-            BASE_CHAT_SYSTEM_PROMPT
-          );
 
-          if (hasMcpTools) {
-            const result = await runAgentStreamWithMcpTools(
-              queryText,
-              BASE_CHAT_SYSTEM_PROMPT,
-              port,
-              abortController.signal
-            );
-            if ("error" in result) {
-              safePortPost(port, { type: "error", error: result.error });
-              return;
-            }
-            const doneMessage: ChatMessage = {
-              role: "assistant",
-              content: result.text,
-              timestamp: new Date().toISOString()
-            };
-            if (result.reasoningSteps.length > 0) {
-              doneMessage.reasoningSteps = result.reasoningSteps;
-            }
-            const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
-            if (!sentMcp) {
-              await storage.saveChatMessage(doneMessage);
-              showChatReadyNotification();
-            }
+        let userMessage = queryText;
+        let sourcesForDone: { title: string; url: string }[] | undefined;
+
+        if (isQuestionAboutCurrentPage(queryText)) {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!tabs[0] || !tabs[0].id) {
+            safePortPost(port, { type: "error", error: "No active tab found" });
             return;
           }
+          let currentPageResponse: GetCurrentPageResponse;
+          try {
+            currentPageResponse = await getCurrentPageWithRetry(tabs[0].id);
+          } catch (err) {
+            safePortPost(port, { type: "error", error: (err as Error).message || PAGE_LOAD_ERROR });
+            return;
+          }
+          if (!currentPageResponse.ok || !currentPageResponse.page) {
+            safePortPost(port, { type: "error", error: currentPageResponse.error || "Could not get current page." });
+            return;
+          }
+          const currentPage = currentPageResponse.page;
+          userMessage = buildSummaryPrompt([currentPage], queryText);
+          sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
+        }
 
-          const result = await chatWithLLMStream(
-            [{ role: "user", content: queryText }],
-            {
-              systemPrompt,
-              onChunk: (text: string) => safePortPost(port, { type: "chunk", text }),
-              signal: abortController.signal
-            }
+        const mcpLoaded = await getEnabledMcpToolsWithMap();
+        const hasMcpTools = !("error" in mcpLoaded) && mcpLoaded.tools.length > 0;
+        const systemPrompt = buildSystemPromptWithToolStatus(
+          "error" in mcpLoaded ? { tools: [], mcpConfigured: false } : mcpLoaded,
+          BASE_CHAT_SYSTEM_PROMPT
+        );
+
+        if (hasMcpTools) {
+          const result = await runAgentStreamWithMcpTools(
+            userMessage,
+            systemPrompt,
+            port,
+            abortController.signal
           );
           if ("error" in result) {
             safePortPost(port, { type: "error", error: result.error });
             return;
           }
-          const doneMsg: ChatMessage = {
+          const doneMessage: ChatMessage = {
             role: "assistant",
             content: result.text,
             timestamp: new Date().toISOString(),
-            ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {})
+            ...(result.reasoningSteps.length > 0 ? { reasoningSteps: result.reasoningSteps } : {}),
+            ...(sourcesForDone ? { sources: sourcesForDone } : {})
           };
-          const sentStream = tryPortPost(port, { type: "done", message: doneMsg });
-          if (!sentStream) {
-            await storage.saveChatMessage(doneMsg);
+          const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
+          if (!sentMcp) {
+            await storage.saveChatMessage(doneMessage);
             showChatReadyNotification();
           }
           return;
         }
 
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs[0] || !tabs[0].id) {
-          safePortPost(port, { ok: false, error: "No active tab found" });
+        const result = await chatWithLLMStream(
+          [{ role: "user", content: userMessage }],
+          {
+            systemPrompt,
+            onChunk: (text: string) => safePortPost(port, { type: "chunk", text }),
+            signal: abortController.signal
+          }
+        );
+        if ("error" in result) {
+          safePortPost(port, { type: "error", error: result.error });
           return;
         }
-        const tabId = tabs[0].id;
-        let currentPageResponse: GetCurrentPageResponse;
-        try {
-          currentPageResponse = await getCurrentPageWithRetry(tabId);
-        } catch (err) {
-          safePortPost(port, { type: "error", error: (err as Error).message || PAGE_LOAD_ERROR });
-          return;
-        }
-        if (!currentPageResponse.ok || !currentPageResponse.page) {
-          const errorMsg = currentPageResponse.error || "Could not get current page.";
-          safePortPost(port, { type: "error", error: errorMsg });
-          return;
-        }
-        const currentPage = currentPageResponse.page;
-        const summary = await summarizePages([currentPage], {
-          pageIds: [currentPage.id],
-          query: queryText
-        });
-        if ("error" in summary) {
-          safePortPost(port, { type: "error", error: summary.error });
-          return;
-        }
-        const chatResponse: ChatMessage = {
+        const doneMsg: ChatMessage = {
           role: "assistant",
-          content: summary.text,
+          content: result.text,
           timestamp: new Date().toISOString(),
-          sources: [{ title: currentPage.title, url: currentPage.url }]
+          ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {}),
+          ...(sourcesForDone ? { sources: sourcesForDone } : {})
         };
-        safePortPost(port, { type: "chunk", text: summary.text });
-        const sentSummary = tryPortPost(port, { type: "done", message: chatResponse });
-        if (!sentSummary) {
-          await storage.saveChatMessage(chatResponse);
+        const sentStream = tryPortPost(port, { type: "done", message: doneMsg });
+        if (!sentStream) {
+          await storage.saveChatMessage(doneMsg);
           showChatReadyNotification();
         }
       } catch (error) {
