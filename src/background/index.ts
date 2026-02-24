@@ -73,10 +73,16 @@ async function getCurrentPageWithRetry(tabId: number, maxAttempts = 3): Promise<
           })) as GetCurrentPageResponse;
           return response;
         } catch (retryErr) {
-          throw new Error(PAGE_ACCESS_ERROR, { cause: retryErr });
+          const e = new Error(PAGE_ACCESS_ERROR);
+          (e as Error & { cause?: unknown }).cause = retryErr;
+          throw e;
         }
       }
-      if (lastAttempt) throw new Error(PAGE_LOAD_ERROR, { cause: err });
+      if (lastAttempt) {
+        const e = new Error(PAGE_LOAD_ERROR);
+        (e as Error & { cause?: unknown }).cause = err;
+        throw e;
+      }
       await new Promise((r) => setTimeout(r, 300 * attempt));
     }
   }
@@ -367,7 +373,7 @@ function showChatReadyNotification(): void {
     priority: 1
   };
   try {
-    api.create(id, options, (createdId: string | undefined) => {
+    api.create(id, options, (_createdId: string | undefined) => {
       if (chrome.runtime.lastError) {
         console.warn("[PageAI] Notification create failed:", chrome.runtime.lastError.message);
       }
@@ -631,13 +637,13 @@ chrome.runtime.onMessage.addListener((message: MessageFromContent | MessageFromP
               await chrome.sidePanel.open({ windowId: win.id });
             }
             sendResponse({ ok: true });
-          } catch (err) {
+          } catch {
             sendResponse({ ok: false, error: "Side panel disabled, fallback to popup" });
           }
         } else {
           sendResponse({ ok: false, error: "Side panel not supported" });
         }
-      } catch (err) {
+      } catch {
         sendResponse({ ok: false, error: "Side panel not available" });
       }
       return;

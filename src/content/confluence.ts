@@ -117,7 +117,7 @@ async function openSidePanelIfNeeded() {
         // Игнорируем ошибки, если панель не поддерживается (например, Yandex Browser)
       });
     }
-  } catch (err) {
+  } catch {
     // Игнорируем ошибки при открытии панели
   }
 }

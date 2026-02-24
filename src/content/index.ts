@@ -1,4 +1,3 @@
-import type { PageIndexPayload } from "../types/messages";
 import { buildPagePayload } from "./page-extractor";
 
 async function indexCurrentPage(): Promise<void> {
@@ -73,20 +72,3 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return false;
 });
-
-// Автоматически открываем side panel (если поддерживается)
-async function openSidePanelIfNeeded() {
-  try {
-    const result = await chrome.storage.sync.get({
-      autoOpenPanel: false // По умолчанию не открываем автоматически для всех страниц
-    });
-
-    if (result.autoOpenPanel) {
-      chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" }, () => {
-        // Игнорируем ошибки
-      });
-    }
-  } catch (err) {
-    // Игнорируем ошибки
-  }
-}

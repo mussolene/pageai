@@ -1,4 +1,5 @@
 import type { ConfluencePage } from "../types/messages";
+import type { SearchResult } from "../types/messages";
 import { getCachedSearchResults, setCachedSearchResults } from "../storage/indexdb";
 
 export interface ConfluenceConfig {
@@ -111,21 +112,13 @@ export async function searchConfluencePages(
 
   // Try to get cached results first
   const spaceKey = spaceKeys?.length === 1 ? spaceKeys[0] : undefined;
-  const cacheKey = spaceKey ? `${query}:${spaceKey}` : query;
-  
+
   try {
     const cachedResults = await getCachedSearchResults(query, spaceKey);
     if (cachedResults && cachedResults.length > 0) {
-      // Convert cached SearchResult[] back to ConfluencePage[]
-      return cachedResults.map((item: any) => ({
-        id: item.id,
-        url: item.url,
-        title: item.title,
-        spaceKey: item.spaceKey,
-        createdAt: item.createdAt || "",
-        updatedAt: item.updatedAt || "",
-        contentText: item.contentText || ""
-      }));
+      return cachedResults.map((item: SearchResult) =>
+        "page" in item ? item.page : (item as unknown as ConfluencePage)
+      );
     }
   } catch (error) {
     console.warn("Cache retrieval failed, falling back to API:", error);
@@ -173,7 +166,8 @@ export async function searchConfluencePages(
 
   // Cache the results with 24-hour TTL
   try {
-    await setCachedSearchResults(query, results as any, 24 * 60 * 60 * 1000, spaceKey);
+    const searchResults: SearchResult[] = results.map((page) => ({ page, score: 1 }));
+    await setCachedSearchResults(query, searchResults, 24 * 60 * 60 * 1000, spaceKey);
   } catch (error) {
     console.warn("Cache storage failed:", error);
     // Continue anyway - cache is optional for functionality
@@ -307,10 +301,11 @@ async function getConfluenceSpacesV1(
     }
 
     const data = await response.json();
-    return (data.results || []).map((space: any) => ({
+    const spaces = (data.results || []) as Array<{ key: string; name: string; type?: string }>;
+    return spaces.map((space) => ({
       key: space.key,
       name: space.name,
-      type: space.type || "global"
+      type: (space.type as "global" | "personal") || "global"
     }));
   } catch (error) {
     console.error("Failed to fetch Confluence spaces (v1):", error);
