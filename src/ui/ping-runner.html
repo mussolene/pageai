@@ -9,14 +9,6 @@
   </style>
 </head>
 <body>
-  <script>
-    (function() {
-      const port = chrome.runtime.connect({ name: "pageai-stream-keepalive" });
-      const id = setInterval(function() {
-        try { port.postMessage({ type: "ping" }); } catch (e) { clearInterval(id); }
-      }, 15000);
-      port.onDisconnect.addListener(function() { clearInterval(id); });
-    })();
-  </script>
+  <script type="module" src="ping-runner.js"></script>
 </body>
 </html>

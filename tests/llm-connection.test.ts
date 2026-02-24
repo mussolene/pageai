@@ -173,10 +173,13 @@ describe("checkLmStudioHealth", () => {
             cb({
               llmEndpoint: "http://localhost:1234/v1/chat/completions",
               llmModel: "qwen/qwen3-4b-2507",
-              llmApiKey: "",
               llmTemperature: 0.7,
               llmMaxTokens: 512,
             }),
+        },
+        local: {
+          get: (_: any, cb: (v: any) => void) => cb({ llmApiKey: "" }),
+          set: vi.fn(),
         },
       },
     };

@@ -30,10 +30,15 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
             callback({
               llmEndpoint: "http://localhost:1234/v1/chat/completions",
               llmModel: "qwen/qwen3-4b-2507",
-              llmApiKey: "",
               llmTemperature: 0.7,
               llmMaxTokens: 512
             });
+          },
+          set: vi.fn()
+        },
+        local: {
+          get: (defaults: any, callback: Function) => {
+            callback({ llmApiKey: "" });
           },
           set: vi.fn()
         }

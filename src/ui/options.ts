@@ -1,4 +1,4 @@
-import { checkLlmConnection, getLMStudioModelsForEndpoint, normalizeEndpoint } from "../llm/client";
+import { checkLlmConnection, getLMStudioModelsForEndpoint, normalizeEndpoint, isLocalLlmEndpoint } from "../llm/client";
 import {
   checkMcpConnection,
   parseMcpServersConfigForCheck,
@@ -28,7 +28,6 @@ function loadLlmConfig() {
       llmEndpoint: "http://localhost:1234",
       llmEndpointType: "chat" as "chat" | "custom",
       llmModel: "qwen/qwen3-4b-2507",
-      llmApiKey: "",
       mcpServersConfig: "",
       mcpServerUrl: "",
       mcpHeaders: "",
@@ -43,7 +42,9 @@ function loadLlmConfig() {
       }
       llmEndpointInput!.value = endpointDisplay;
       llmModelInput.value = items.llmModel;
-      llmApiKeyInput.value = items.llmApiKey;
+      chrome.storage.local.get({ llmApiKey: "" }, (local) => {
+        llmApiKeyInput!.value = (local.llmApiKey as string) ?? "";
+      });
       if (mcpServersConfigInput) {
         let config = items.mcpServersConfig || "";
         if (!config && items.mcpServerUrl) {
@@ -193,11 +194,32 @@ async function saveLlmConfig() {
     llmStatus.className = "status error";
     return;
   }
+  if (!isLocalLlmEndpoint(endpointRaw)) {
+    const externalMsg =
+      (await translate("options.externalEndpointWarning")) ||
+      "Chat and page content will be sent to this server. Continue?";
+    const confirmed = await new Promise<boolean>((resolve) => {
+      chrome.storage.sync.get({ llmExternalEndpointConfirmed: false }, (items) => {
+        if (items.llmExternalEndpointConfirmed) {
+          resolve(true);
+          return;
+        }
+        resolve(window.confirm(externalMsg));
+      });
+    });
+    if (!confirmed) {
+      llmStatus.textContent = (await translate("options.saveCancelled")) || "Save cancelled.";
+      llmStatus.className = "status error";
+      return;
+    }
+    await new Promise<void>((r) => chrome.storage.sync.set({ llmExternalEndpointConfirmed: true }, r));
+  }
+  const apiKey = llmApiKeyInput?.value ?? "";
+  chrome.storage.local.set({ llmApiKey: apiKey });
   const toSave: Record<string, unknown> = {
     llmEndpoint: endpointRaw,
     llmEndpointType: endpointType,
-    llmModel: model,
-    llmApiKey: llmApiKeyInput?.value ?? ""
+    llmModel: model
   };
   if (mcpServersConfigInput?.value.trim()) toSave.mcpServersConfig = mcpServersConfigInput.value.trim();
   chrome.storage.sync.set(toSave, async () => {

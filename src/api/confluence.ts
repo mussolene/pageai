@@ -57,26 +57,41 @@ export interface ConfluencePageResponse {
 }
 
 async function getConfig(): Promise<ConfluenceConfig | null> {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(
-      {
-        confluenceBaseUrl: "",
-        confluenceApiToken: "",
-        confluenceUsername: ""
-      },
-      (items) => {
-        if (!items.confluenceBaseUrl) {
-          resolve(null);
-          return;
-        }
-        resolve({
-          baseUrl: items.confluenceBaseUrl.trim().replace(/\/$/, ""),
-          apiToken: items.confluenceApiToken || undefined,
-          username: items.confluenceUsername || undefined
-        });
-      }
-    );
-  });
+  const [syncItems, localItems] = await Promise.all([
+    new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.sync.get({ confluenceBaseUrl: "" }, resolve);
+    }),
+    new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get({ confluenceApiToken: "", confluenceUsername: "" }, resolve);
+    })
+  ]);
+
+  const baseUrl = (syncItems.confluenceBaseUrl as string)?.trim();
+  if (!baseUrl) {
+    return null;
+  }
+
+  let apiToken = (localItems.confluenceApiToken as string) || undefined;
+  let username = (localItems.confluenceUsername as string) || undefined;
+
+  if (!apiToken && !username) {
+    const syncSecrets = await new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.sync.get({ confluenceApiToken: "", confluenceUsername: "" }, resolve);
+    });
+    const syncToken = (syncSecrets.confluenceApiToken as string) || "";
+    const syncUser = (syncSecrets.confluenceUsername as string) || "";
+    if (syncToken || syncUser) {
+      apiToken = syncToken || undefined;
+      username = syncUser || undefined;
+      chrome.storage.local.set({ confluenceApiToken: syncToken, confluenceUsername: syncUser });
+    }
+  }
+
+  return {
+    baseUrl: baseUrl.replace(/\/$/, ""),
+    apiToken,
+    username
+  };
 }
 
 function extractTextFromHtml(html: string): string {
@@ -208,15 +223,21 @@ export async function getConfluencePage(pageId: string): Promise<ConfluencePage>
   };
 }
 
-function buildCQL(query: string, spaceKeys?: string[]): string {
+/** Escape CQL string literal: backslash and double-quote so query is safe. */
+function escapeCqlString(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/** Build CQL for Confluence search; terms and spaceKeys are escaped. Exported for tests. */
+export function buildCQL(query: string, spaceKeys?: string[]): string {
   const terms = query
     .split(/\s+/)
     .filter(Boolean)
-    .map((t) => `text ~ "${t}"`)
+    .map((t) => `text ~ "${escapeCqlString(t)}"`)
     .join(" AND ");
 
   if (spaceKeys && spaceKeys.length > 0) {
-    const spaceFilter = spaceKeys.map((k) => `space = "${k}"`).join(" OR ");
+    const spaceFilter = spaceKeys.map((k) => `space = "${escapeCqlString(k)}"`).join(" OR ");
     return `(${terms}) AND (${spaceFilter})`;
   }
 

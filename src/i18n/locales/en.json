@@ -82,7 +82,9 @@
     "save": "Save",
     "enterEndpointAndModel": "Enter endpoint and model",
     "saved": "Saved",
-    "enterEndpointFirst": "Enter endpoint first"
+    "enterEndpointFirst": "Enter endpoint first",
+    "externalEndpointWarning": "Chat and page content will be sent to this server. Continue?",
+    "saveCancelled": "Save cancelled."
   },
   "spaceSelector": {
     "allSpaces": "All Spaces",

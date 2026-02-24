@@ -42,6 +42,7 @@
 
 ## Безопасность
 
-- Нет eval/innerHTML с пользовательским вводом без санитизации; markdown → безопасные узлы.
-- API-токены в chrome.storage.sync — ок.
-- Источники: `validateSources` есть; javascript: URL проходят URL API — при отображении target="_blank" и rel снижают риски.
+- **Исправления по аудиту (2025)**: проведён аудит; реализованы исправления по [docs/SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md): санитизация URL в markdown (только http/https), перенос секретов в chrome.storage.local, предупреждение при нелокальном LLM endpoint, экранирование CQL в Confluence, CSP в manifest, PRIVACY.md.
+- Markdown: ссылки в ответах проверяются через `isSafeLinkUrl` (только http/https); опасные URL не рендерятся как кликабельные.
+- API-ключи LLM и токены Confluence хранятся в chrome.storage.local (не синхронизируются).
+- Источники: `validateSources` есть; при отображении ссылок используется rel="noopener noreferrer".

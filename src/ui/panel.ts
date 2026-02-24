@@ -497,7 +497,6 @@ function loadLlmConfig() {
       llmEndpoint: "http://localhost:1234",
       llmEndpointType: "chat" as "chat" | "custom",
       llmModel: "qwen/qwen3-4b-2507",
-      llmApiKey: "",
       llmTemperature: 0.7,
       llmMaxTokens: 2048,
       theme: "system" as "light" | "dark" | "system",
@@ -516,7 +515,9 @@ function loadLlmConfig() {
       llmModelInput.value = items.llmModel;
       applyTheme(items.theme === "dark" ? "dark" : items.theme === "light" ? "light" : "system");
       if (themeSelect) themeSelect.value = items.theme ?? "system";
-      llmApiKeyInput.value = items.llmApiKey;
+      chrome.storage.local.get({ llmApiKey: "" }, (local) => {
+        llmApiKeyInput.value = (local.llmApiKey as string) ?? "";
+      });
       if (llmMaxTokensInput) llmMaxTokensInput.value = String(items.llmMaxTokens ?? 2048);
       if (mcpServersConfigInput) {
         let config = items.mcpServersConfig || "";
@@ -612,11 +613,11 @@ async function saveLlmConfig() {
     return;
   }
 
+  chrome.storage.local.set({ llmApiKey: llmApiKeyInput.value });
   const toSave: Record<string, unknown> = {
     llmEndpoint: endpointRaw,
     llmEndpointType: endpointType,
     llmModel: model,
-    llmApiKey: llmApiKeyInput.value,
     llmTemperature: temperature,
     llmMaxTokens: maxTokens
   };

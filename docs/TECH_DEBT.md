@@ -32,9 +32,11 @@
 
 - ~~sources.ts: source.number → source.id~~ (исправлено)
 - Popup parity с panel (FINAL_REVIEW.md)
+- Исправления по аудиту безопасности — см. [docs/SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md)
 
 ## Ссылки
 
 - AGENTS.md — приоритеты и DoD
+- [SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md) — план и статус исправлений безопасности
 - PROJECT_SUMMARY.md — Future Improvements
 - CODE_REVIEW.md — детали ревью

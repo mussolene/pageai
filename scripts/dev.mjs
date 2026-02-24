@@ -60,7 +60,8 @@ async function run() {
       content: join(__dirname, "..", "src", "content", "index.ts"),
       panel: join(__dirname, "..", "src", "ui", "panel.ts"),
       popup: join(__dirname, "..", "src", "ui", "popup.ts"),
-      options: join(__dirname, "..", "src", "ui", "options.ts")
+      options: join(__dirname, "..", "src", "ui", "options.ts"),
+      "ping-runner": join(__dirname, "..", "src", "ui", "ping-runner.ts")
     },
     bundle: true,
     sourcemap: !isProd,

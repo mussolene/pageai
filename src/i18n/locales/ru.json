@@ -82,7 +82,9 @@
     "save": "Сохранить",
     "enterEndpointAndModel": "Укажите endpoint и модель",
     "saved": "Сохранено",
-    "enterEndpointFirst": "Сначала укажите endpoint"
+    "enterEndpointFirst": "Сначала укажите endpoint",
+    "externalEndpointWarning": "Данные чата и контент страниц будут отправлены на этот сервер. Продолжить?",
+    "saveCancelled": "Сохранение отменено."
   },
   "spaceSelector": {
     "allSpaces": "Все пространства",

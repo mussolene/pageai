@@ -29,16 +29,36 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Allow only http: and https: for link href to prevent XSS (javascript:, data:, etc.). */
+function isSafeLinkUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Parse inline markdown (bold, italic, code, links). Escapes HTML in text for XSS safety.
+ * Links with non-http(s) URLs are rendered as plain text.
  */
 function parseInlineMarkdown(text: string): string {
   let result = escapeHtml(text);
 
-  // Links: [text](url)
+  // Links: [text](url) — only http/https URLs become clickable
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" class="md-link" target="_blank">$1</a>'
+    (_match, linkText: string, url: string) => {
+      if (isSafeLinkUrl(url)) {
+        // url may already be HTML-escaped (e.g. & → &amp;) when parsed from escapeHtml(text); use as-is to avoid double escape
+        const safeHref = url;
+        return `<a href="${safeHref}" class="md-link" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
+      }
+      return linkText;
+    }
   );
 
   // Bold: **text** or __text__

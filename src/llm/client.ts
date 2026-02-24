@@ -45,6 +45,24 @@ export type LlmMessageForApi =
 
 const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 
+/** True if the endpoint URL is local (localhost / 127.0.0.1 / [::1]). Used to warn when sending data to external servers. */
+export function isLocalLlmEndpoint(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    try {
+      url = new URL("http://" + trimmed);
+    } catch {
+      return false;
+    }
+  }
+  const h = url.hostname.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "[::1]";
+}
+
 /** Нормализует URL: для типа "chat" добавляет /v1/chat/completions к базовому адресу. Экспорт для UI проверки связи. */
 export function normalizeEndpoint(raw: string, type: "chat" | "custom"): string {
   const trimmed = raw.trim();
@@ -55,42 +73,45 @@ export function normalizeEndpoint(raw: string, type: "chat" | "custom"): string 
   return base + CHAT_COMPLETIONS_PATH;
 }
 
-// BYOM: конфиг читаем из chrome.storage.sync для локального OpenAI-совместимого endpoint (LM Studio на localhost:1234)
+// BYOM: конфиг из chrome.storage.sync (endpoint, model); секреты (llmApiKey) из chrome.storage.local
 async function getLlmConfig(): Promise<LlmConfig | null> {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(
-      {
-        llmEndpoint: "http://localhost:1234",
-        llmEndpointType: "chat" as "chat" | "custom",
-        llmModel: "qwen/qwen3-4b-2507",
-        llmApiKey: "",
-        llmTemperature: 0.7,
-        llmMaxTokens: 2048
-      },
-      (items) => {
-        const raw = items.llmEndpoint;
-        const type = items.llmEndpointType === "custom" ? "custom" : "chat";
-        if (!raw || !items.llmModel) {
-          resolve(null);
-          return;
-        }
+  const [syncItems, localItems] = await Promise.all([
+    new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.sync.get(
+        {
+          llmEndpoint: "http://localhost:1234",
+          llmEndpointType: "chat" as "chat" | "custom",
+          llmModel: "qwen/qwen3-4b-2507",
+          llmTemperature: 0.7,
+          llmMaxTokens: 2048
+        },
+        resolve
+      );
+    }),
+    new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get({ llmApiKey: "" }, resolve);
+    })
+  ]);
 
-        const endpoint = normalizeEndpoint(raw, type);
-        if (!endpoint) {
-          resolve(null);
-          return;
-        }
+  const raw = syncItems.llmEndpoint as string;
+  const type = syncItems.llmEndpointType === "custom" ? "custom" : "chat";
+  if (!raw || !syncItems.llmModel) {
+    return null;
+  }
 
-        resolve({
-          endpoint,
-          model: items.llmModel,
-          apiKey: items.llmApiKey || undefined,
-          temperature: items.llmTemperature || 0.7,
-          maxTokens: items.llmMaxTokens || 2048
-        });
-      }
-    );
-  });
+  const endpoint = normalizeEndpoint(raw, type);
+  if (!endpoint) {
+    return null;
+  }
+
+  const apiKey = (localItems.llmApiKey as string) || undefined;
+  return {
+    endpoint,
+    model: syncItems.llmModel as string,
+    apiKey: apiKey && apiKey.trim() ? apiKey : undefined,
+    temperature: (syncItems.llmTemperature as number) ?? 0.7,
+    maxTokens: (syncItems.llmMaxTokens as number) ?? 2048
+  };
 }
 
 // Проверить доступность LM Studio (по сохранённому конфигу)

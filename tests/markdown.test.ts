@@ -57,6 +57,25 @@ describe('Markdown Parser', () => {
       expect(result).toContain('href="https://example.com?query=value&amp;other=123"');
     });
 
+    it('should not render javascript: URLs as clickable links (XSS safety)', () => {
+      const result = markdownToHtml('[click](javascript:alert(1))');
+      expect(result).not.toMatch(/href="javascript:/);
+      expect(result).toContain('click');
+    });
+
+    it('should not render data: URLs as clickable links (XSS safety)', () => {
+      const result = markdownToHtml('[x](data:text/html,<script>)');
+      expect(result).not.toMatch(/href="data:/);
+      expect(result).toContain('x');
+    });
+
+    it('should render https: URLs as clickable links', () => {
+      const result = markdownToHtml('[ok](https://ok.com)');
+      expect(result).toContain('href="https://ok.com"');
+      expect(result).toContain('rel="noopener noreferrer"');
+      expect(result).toContain('ok');
+    });
+
     it('should parse h1 heading', () => {
       const result = markdownToHtml('# Main Title');
       expect(result).toContain('<h1 class="md-h1">Main Title</h1>');
@@ -158,9 +177,8 @@ describe('Markdown Parser', () => {
 
     it('should handle XSS attempt in link URL', () => {
       const result = markdownToHtml('[Click me](javascript:alert("xss"))');
-      expect(result).toContain('javascript:alert');
-      // Note: URL is included as-is, but target="_blank" prevents execution
-      // Real browsers won't execute javascript: protocol with target="_blank"
+      expect(result).not.toMatch(/href="javascript:/);
+      expect(result).toContain('Click me');
     });
 
     it('should handle mixed formatting', () => {

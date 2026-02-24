@@ -11,10 +11,13 @@ describe("chatWithLLMOneRound", () => {
             cb({
               llmEndpoint: "http://localhost:1234/v1/chat/completions",
               llmModel: "test-model",
-              llmApiKey: "",
               llmTemperature: 0.7,
               llmMaxTokens: 2048
             })
+        },
+        local: {
+          get: (defaults: any, cb: (v: any) => void) => cb({ llmApiKey: "" }),
+          set: vi.fn()
         }
       }
     };

@@ -7,6 +7,7 @@ import {
   getConfluenceSpaces,
   getConfluencePage,
   testConfluenceConnection,
+  buildCQL,
   type ConfluenceSpace,
 } from "../src/api/confluence";
 
@@ -33,12 +34,24 @@ describe("Confluence API", () => {
       storage: {
         sync: {
           get: (keys: any, cb: (r: any) => void) => {
+            if (Object.prototype.hasOwnProperty.call(keys, "confluenceBaseUrl")) {
+              cb({ confluenceBaseUrl: mockConfig.confluenceBaseUrl });
+            } else {
+              cb({
+                confluenceApiToken: mockConfig.confluenceApiToken,
+                confluenceUsername: mockConfig.confluenceUsername,
+              });
+            }
+          },
+        },
+        local: {
+          get: (keys: any, cb: (r: any) => void) => {
             cb({
-              confluenceBaseUrl: mockConfig.confluenceBaseUrl,
               confluenceApiToken: mockConfig.confluenceApiToken,
               confluenceUsername: mockConfig.confluenceUsername,
             });
           },
+          set: vi.fn(),
         },
       },
     };
@@ -280,6 +293,25 @@ describe("Confluence API", () => {
       const callUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callUrl).toContain("space");
       expect(callUrl).toMatch(/DOC|DEV/);
+    });
+  });
+
+  describe("buildCQL", () => {
+    it("escapes double-quote in query terms", () => {
+      const cql = buildCQL('foo"bar');
+      expect(cql).toContain('\\"');
+      expect(cql).not.toMatch(/text ~ "foo"bar"/);
+    });
+
+    it("escapes backslash in query terms", () => {
+      const cql = buildCQL("a\\b");
+      expect(cql).toContain("\\\\");
+    });
+
+    it("escapes spaceKey with special characters", () => {
+      const cql = buildCQL("q", ['SP"ACE']);
+      expect(cql).toContain('\\"');
+      expect(cql).toMatch(/space = "SP\\"ACE"/);
     });
   });
 });
