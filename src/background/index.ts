@@ -73,10 +73,10 @@ async function getCurrentPageWithRetry(tabId: number, maxAttempts = 3): Promise<
           })) as GetCurrentPageResponse;
           return response;
         } catch (retryErr) {
-          throw new Error(PAGE_ACCESS_ERROR);
+          throw new Error(PAGE_ACCESS_ERROR, { cause: retryErr });
         }
       }
-      if (lastAttempt) throw new Error(PAGE_LOAD_ERROR);
+      if (lastAttempt) throw new Error(PAGE_LOAD_ERROR, { cause: err });
       await new Promise((r) => setTimeout(r, 300 * attempt));
     }
   }
@@ -234,7 +234,7 @@ async function runAgentStreamWithMcpTools(
 
   const openAITools: OpenAITool[] = tools;
   const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
-  let messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
+  const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
   const reasoningSteps: ReasoningStep[] = [];
 
   for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
@@ -300,7 +300,7 @@ async function runAgentWithMcpTools(
 
   const openAITools: OpenAITool[] = tools;
   const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
-  let messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
+  const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
 
   for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
     const result = await chatWithLLMOneRound(messages, {

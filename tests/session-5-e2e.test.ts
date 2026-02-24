@@ -70,7 +70,7 @@ describe("Session #5 E2E - Confluence Spaces", () => {
     });
 
     it("should mark selected space in dropdown", () => {
-      let selected = null;
+      const selected = null;
       const displayStatus = selected ? `Selected: ${selected}` : "All Spaces";
       
       expect(displayStatus).toBe("All Spaces");
@@ -212,11 +212,11 @@ describe("Session #5 E2E - Confluence Spaces", () => {
 
     it("should clear previous space results when changing space", () => {
       // Previous search in DOC
-      let previousResults = mockSearchResults.filter(r => r.spaceKey === "DOC");
+      const previousResults = mockSearchResults.filter(r => r.spaceKey === "DOC");
       expect(previousResults).toHaveLength(2);
       
       // User switches to DEV
-      let newResults = mockSearchResults.filter(r => r.spaceKey === "DEV");
+      const newResults = mockSearchResults.filter(r => r.spaceKey === "DEV");
       expect(newResults).toHaveLength(1);
       expect(previousResults).not.toBe(newResults);
     });
@@ -320,10 +320,10 @@ describe("Session #5 E2E - Confluence Spaces", () => {
   describe("User Experience", () => {
     it("should remember user's space preference", () => {
       // User selects DEV
-      let savedPreference = "DEV";
+      const savedPreference = "DEV";
       
       // Next session
-      let loadedPreference = savedPreference;
+      const loadedPreference = savedPreference;
       
       expect(loadedPreference).toBe("DEV");
     });
@@ -346,7 +346,7 @@ describe("Session #5 E2E - Confluence Spaces", () => {
 
     it("should allow quick space switching during search", () => {
       // User typing search
-      let query = "api";
+      const query = "api";
       let selectedSpace = "DOC";
       
       // User switches to DEV space mid-search
