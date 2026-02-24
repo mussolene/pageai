@@ -1,5 +1,5 @@
 ---
-description: Workflow and rules for Confluence AI Extension
+description: Workflow and rules for PageAI Chrome Extension
 globs: 
 alwaysApply: true
 ---

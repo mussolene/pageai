@@ -44,7 +44,8 @@ page-ai/
 ├─ manifest.json
 ├─ src/
 │  ├─ content/
-│  │  └─ confluence.ts      # работа с DOM Confluence
+│  │  ├─ index.ts           # content script, messaging
+│  │  └─ page-extractor.ts  # извлечение контента страницы (в т.ч. Confluence-селекторы)
 │  ├─ background/
 │  │  └─ index.ts           # orchestration, messaging
 │  ├─ ui/
@@ -160,7 +161,7 @@ VSCode / Cursor
 ⸻
 
 6. Минимальный MVP (агенты должны начать с этого)
-	1.	Content script читает страницу Confluence
+	1.	Content script читает страницу (page-extractor)
 	2.	Сохраняет текст + metadata в IndexedDB
 	3.	Keyword search по сохранённым страницам
 	4.	Простая выжимка через локальную LLM

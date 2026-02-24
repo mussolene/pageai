@@ -31,7 +31,6 @@ export default defineConfig({
         "src/ui/options.ts",
         "src/ui/markdown.ts",
         "src/content/index.ts",
-        "src/content/confluence.ts",
         "src/content/page-extractor.ts",
         "src/background/index.ts",
         "src/storage/indexdb.ts",
