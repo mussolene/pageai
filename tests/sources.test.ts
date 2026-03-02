@@ -11,7 +11,6 @@ import {
   validateSources,
   mergeSources,
   type Source,
-  type ParsedResponse,
 } from '../src/search/sources';
 
 describe('Source Links & Citations Parser', () => {
@@ -314,7 +313,7 @@ See [API Guide](https://example.com/api-guide) for details.
         { id: 1, title: 'Relative', url: '/path/to/page' },
       ];
 
-      const { valid, invalid } = validateSources(sources);
+      const { invalid } = validateSources(sources);
       // Relative URLs are invalid according to URL API
       expect(invalid.length).toBeGreaterThan(0);
     });

@@ -36,7 +36,19 @@
 
 ## MCP внутри расширения (PageAI)
 
-В расширении MCP используется **только в настройках**:
+### Поддерживаемые транспорты
+
+Расширение поддерживает **только URL-based MCP** (Streamable HTTP):
+
+| Транспорт      | Поддержка | Примечание |
+|----------------|-----------|------------|
+| Streamable HTTP | ✅        | Основной. Один endpoint, POST. При 400 на tools/call — retry с сессией (init+initialized). |
+| Legacy SSE     | ❌        | Другой протокол (dual-channel, GET для SSE). Не реализован. |
+| stdio          | ❌        | Chrome extension не может spawn дочерние процессы. Записи `command` в конфиге игнорируются. |
+
+Рекомендуется использовать библиотеку [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) для полноценной поддержки stdio/SSE/Streamable HTTP — в браузерном расширении stdio недоступен, но SDK даёт единый API и правильную обработку протокола.
+
+### Реализация
 
 - **Реализовано:**
   - Конфиг MCP-серверов (JSON в настройках popup/panel/options).

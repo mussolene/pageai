@@ -12,7 +12,7 @@ export default tseslint.config(
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-empty-object-type": "warn",
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "no-useless-escape": "warn",
@@ -20,6 +20,15 @@ export default tseslint.config(
       "no-useless-assignment": "warn",
       "@typescript-eslint/no-unused-expressions": "warn",
       "@typescript-eslint/no-unsafe-function-type": "warn",
+    },
+  },
+  {
+    files: ["tests/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unsafe-function-type": "off",
+      "no-console": "off",
+      "@typescript-eslint/no-unused-expressions": "off",
     },
   }
 );

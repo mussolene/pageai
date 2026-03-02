@@ -84,7 +84,7 @@ describe("LLM Cache - Session #1", () => {
 
       // Should return null because cache expired
       const result = await getCachedLlmResponse("test");
-      // In real test with proper mocking, this should be null
+      expect(result).toBeNull();
     });
   });
 });

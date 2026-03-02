@@ -38,7 +38,6 @@ describe("Session #1 E2E - LM Studio Integration", () => {
 
   describe("✓ Chat отправляет запрос и получает ответ от LM Studio", () => {
     it("should send user message and receive LLM response", () => {
-      const userMessage = "What is this page about?";
       const expected = mockLLMResponses.responses[0].response;
 
       // Simulate chat sending message

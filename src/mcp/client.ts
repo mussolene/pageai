@@ -1,7 +1,45 @@
 /**
  * MCP (Model Context Protocol) connection check.
  * Supports URL transport with optional headers; stdio (command/args) stored in config.
+ * Compatible with Streamable HTTP (2025-03-26) and legacy HTTP+SSE (2024-11-05).
  */
+
+const MCP_ACCEPT = "application/json, text/event-stream";
+const MCP_PROTOCOL_VERSION = "2025-03-26";
+
+function buildMcpHeaders(userHeaders?: Record<string, string>): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    Accept: MCP_ACCEPT,
+    "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+    ...(userHeaders && typeof userHeaders === "object" ? userHeaders : {})
+  };
+}
+
+/**
+ * Parse MCP HTTP response: supports application/json and text/event-stream (SSE).
+ * Returns parsed JSON-RPC object or null if body is empty/invalid.
+ */
+async function parseMcpResponse(response: Response): Promise<unknown> {
+  const text = await response.text();
+  const ct = (response.headers?.get?.("content-type") as string | undefined) ?? "";
+  if (ct.includes("text/event-stream")) {
+    const lastData = text.split(/\r?\n/).filter((l) => l.startsWith("data:")).pop();
+    const dataLine = lastData?.replace(/^data:\s*/, "").trim();
+    if (!dataLine || dataLine === "[DONE]" || dataLine === "") return null;
+    try {
+      return JSON.parse(dataLine) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
 
 export interface McpCheckResult {
   ok: boolean;
@@ -105,10 +143,7 @@ export async function listMcpTools(
 ): Promise<{ tools: McpToolInfo[] } | { error: string }> {
   const url = serverUrl.trim();
   if (!url) return { error: "MCP server URL is empty" };
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...(options?.headers && typeof options.headers === "object" ? options.headers : {})
-  };
+  const headers = buildMcpHeaders(options?.headers);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
@@ -120,7 +155,7 @@ export async function listMcpTools(
         id: 1,
         method: "initialize",
         params: {
-          protocolVersion: "2024-11-05",
+          protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: "page-ai", version: "0.1.0" }
         }
@@ -130,9 +165,17 @@ export async function listMcpTools(
     if (!initRes.ok) {
       return { error: `Initialize: ${initRes.status} ${initRes.statusText}` };
     }
+    const sessionId = initRes.headers.get("mcp-session-id");
+    const sessionHeaders: HeadersInit = sessionId ? { ...headers, "MCP-Session-Id": sessionId } : headers;
+    await fetch(url, {
+      method: "POST",
+      headers: sessionHeaders,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
+      signal: controller.signal
+    });
     const listRes = await fetch(url, {
       method: "POST",
-      headers,
+      headers: sessionHeaders,
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 2,
@@ -145,7 +188,11 @@ export async function listMcpTools(
     if (!listRes.ok) {
       return { error: `tools/list: ${listRes.status} ${listRes.statusText}` };
     }
-    const data = (await listRes.json()) as { result?: { tools?: McpToolInfo[] }; error?: { message?: string } };
+    const parsed = await parseMcpResponse(listRes);
+    const data = parsed as { result?: { tools?: McpToolInfo[] }; error?: { message?: string } } | null;
+    if (!data) {
+      return { error: "Server did not return valid JSON" };
+    }
     if (data.error?.message) {
       return { error: data.error.message };
     }
@@ -165,7 +212,8 @@ export interface McpToolCallResult {
 
 /**
  * Call an MCP tool by name with optional arguments.
- * Sends JSON-RPC "tools/call" to the server. Does not send initialize (assumes server accepts stateless calls or was initialized earlier).
+ * Tries stateless tools/call first; on 400 Bad Request, retries with session (initialize + initialized)
+ * for Streamable HTTP servers that require MCP-Session-Id.
  */
 export async function callMcpTool(
   serverUrl: string,
@@ -178,47 +226,77 @@ export async function callMcpTool(
   if (!toolName || typeof toolName !== "string" || !toolName.trim()) {
     return { error: "Tool name is required" };
   }
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...(options?.headers && typeof options.headers === "object" ? options.headers : {})
-  };
+  const headers = buildMcpHeaders(options?.headers);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    const res = await fetch(url, {
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  const toolCallBody = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: {
+      name: toolName.trim(),
+      arguments: args && typeof args === "object" ? args : {}
+    }
+  });
+
+  async function doToolsCall(hdr: HeadersInit): Promise<Response> {
+    return fetch(url, {
       method: "POST",
-      headers,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 3,
-        method: "tools/call",
-        params: {
-          name: toolName.trim(),
-          arguments: args && typeof args === "object" ? args : {}
-        }
-      }),
+      headers: hdr,
+      body: toolCallBody,
       signal: controller.signal
     });
-    clearTimeout(timeout);
-    if (!res.ok) {
-      return { error: `tools/call: ${res.status} ${res.statusText}` };
-    }
-    const data = (await res.json()) as {
-      result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean };
+  }
+
+  async function parseToolsCallResponse(res: Response): Promise<McpToolCallResult | { error: string }> {
+    if (!res.ok) return { error: `tools/call: ${res.status} ${res.statusText}` };
+    const parsed = await parseMcpResponse(res);
+    const data = parsed as {
+      result?: { content?: Array<{ type?: string; text?: string }> };
       error?: { message?: string };
-    };
-    if (data.error?.message) {
-      return { error: data.error.message };
-    }
+    } | null;
+    if (!data) return { error: "Server did not return valid JSON" };
+    if (data.error?.message) return { error: data.error.message };
     const content = data.result?.content;
-    if (!Array.isArray(content)) {
-      return { error: "Invalid tools/call response: missing content array" };
-    }
+    if (!Array.isArray(content)) return { error: "Invalid tools/call response: missing content array" };
     const text = content
       .filter((c): c is { type?: string; text?: string } => c && typeof c === "object")
       .map((c) => (typeof c.text === "string" ? c.text : ""))
       .join("");
     return { text };
+  }
+
+  try {
+    let res = await doToolsCall(headers);
+    if (res.status === 400) {
+      const initRes = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: MCP_PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: { name: "page-ai", version: "0.1.0" }
+          }
+        }),
+        signal: controller.signal
+      });
+      if (!initRes.ok) return { error: `Initialize: ${initRes.status} ${initRes.statusText}` };
+      const sessionId = initRes.headers?.get?.("mcp-session-id");
+      const sessionHeaders: HeadersInit = sessionId ? { ...headers, "MCP-Session-Id": sessionId } : headers;
+      await fetch(url, {
+        method: "POST",
+        headers: sessionHeaders,
+        body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
+        signal: controller.signal
+      });
+      res = await doToolsCall(sessionHeaders);
+    }
+    clearTimeout(timeout);
+    return parseToolsCallResponse(res);
   } catch (e) {
     clearTimeout(timeout);
     const msg = e instanceof Error ? e.message : String(e);
@@ -259,10 +337,7 @@ export async function checkMcpConnection(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
 
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...(options?.headers && typeof options.headers === "object" ? options.headers : {})
-  };
+  const headers = buildMcpHeaders(options?.headers);
 
   try {
     const body = JSON.stringify({
@@ -270,7 +345,7 @@ export async function checkMcpConnection(
       id: 1,
       method: "initialize",
       params: {
-        protocolVersion: "2024-11-05",
+        protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: {},
         clientInfo: { name: "page-ai", version: "0.1.0" }
       }
@@ -289,10 +364,8 @@ export async function checkMcpConnection(
       return { ok: false, error: `Server returned ${response.status} ${response.statusText}` };
     }
 
-    const text = await response.text();
-    try {
-      JSON.parse(text);
-    } catch {
+    const parsed = await parseMcpResponse(response);
+    if (parsed === null && response.status !== 202) {
       return { ok: false, error: "Server did not return valid JSON" };
     }
 

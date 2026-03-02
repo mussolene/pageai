@@ -477,18 +477,18 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
 
   describe("LLM Configuration", () => {
     it("should use default config when not configured", async () => {
-      const result = await checkLmStudioHealth();
+      await checkLmStudioHealth();
       // Should have attempted connection even without explicit config
       expect(global.fetch).toHaveBeenCalled();
     });
 
     it("should support custom endpoint configuration", async () => {
-      (global.fetch as any).mockResolvedValueOnce({
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ data: [{ id: "custom-model" }] })
       });
 
-      const result = await getLMStudioModels();
+      await getLMStudioModels();
       expect(global.fetch).toHaveBeenCalled();
     });
   });

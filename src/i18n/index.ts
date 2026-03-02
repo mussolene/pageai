@@ -32,11 +32,11 @@ export async function getStoredLocale(): Promise<Locale> {
 export function t(key: string, locale?: Locale): string {
   const currentLocale = locale || getLocale();
   const keys = key.split(".");
-  let value: any = translations[currentLocale];
+  let value: unknown = translations[currentLocale];
 
   for (const k of keys) {
-    if (value && typeof value === "object" && k in value) {
-      value = value[k];
+    if (value && typeof value === "object" && k in (value as object)) {
+      value = (value as Record<string, unknown>)[k];
     } else {
       return key;
     }

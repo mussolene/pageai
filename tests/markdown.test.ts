@@ -419,6 +419,7 @@ Text`;
       const opens = (html.match(/<(\w+)/g) || []).length;
       const closes = (html.match(/<\/(\w+)>/g) || []).length;
       expect(opens).toBeGreaterThan(0);
+      expect(closes).toBeGreaterThan(0);
       // Note: inline elements like <span> might not have closing tags in some parsers
       // but main block elements should be balanced
     });

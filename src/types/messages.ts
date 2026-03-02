@@ -8,7 +8,7 @@ export interface Page {
   contentText: string;
 }
 
-export interface PageIndexPayload extends Page {}
+export type PageIndexPayload = Page;
 
 export interface SummarizePayload {
   pageIds: string[];

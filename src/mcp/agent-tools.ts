@@ -3,7 +3,7 @@
  * plus a map from tool name to server (url, headers) for execution.
  */
 
-import { parseMcpServersList, listMcpTools, type McpToolInfo } from "./client";
+import { parseMcpServersList, listMcpTools } from "./client";
 
 /** OpenAI-compatible tool definition for chat completions. */
 export interface OpenAITool {
@@ -27,6 +27,8 @@ export interface McpToolsLoadResult {
   toolToServer: Map<string, ToolServerBinding>;
   /** true, если в настройках есть хотя бы один MCP-сервер (инструменты могут быть не загружены из-за ошибки). */
   mcpConfigured: boolean;
+  /** Ошибки загрузки по серверам: { "имя": "сообщение" } — для диагностики. */
+  loadErrors?: Record<string, string>;
 }
 
 /**
@@ -57,6 +59,7 @@ export async function getEnabledMcpToolsWithMap(): Promise<McpToolsLoadResult | 
 
         const tools: OpenAITool[] = [];
         const toolToServer = new Map<string, ToolServerBinding>();
+        const loadErrors: Record<string, string> = {};
 
         for (const server of servers) {
           const serverUrl = server.url!;
@@ -64,10 +67,14 @@ export async function getEnabledMcpToolsWithMap(): Promise<McpToolsLoadResult | 
           let res: Awaited<ReturnType<typeof listMcpTools>>;
           try {
             res = await listMcpTools(serverUrl, { headers });
-          } catch {
+          } catch (e) {
+            loadErrors[server.name] = e instanceof Error ? e.message : String(e);
             continue;
           }
-          if ("error" in res) continue;
+          if ("error" in res) {
+            loadErrors[server.name] = res.error;
+            continue;
+          }
           for (const t of res.tools) {
             if (!t.name?.trim()) continue;
             const name = t.name.trim();
@@ -84,7 +91,12 @@ export async function getEnabledMcpToolsWithMap(): Promise<McpToolsLoadResult | 
           }
         }
 
-        resolve({ tools, toolToServer, mcpConfigured });
+        resolve({
+          tools,
+          toolToServer,
+          mcpConfigured,
+          loadErrors: Object.keys(loadErrors).length > 0 ? loadErrors : undefined
+        });
       }
     );
   });

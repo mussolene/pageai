@@ -16,7 +16,6 @@ import { renderMarkdown } from '../src/ui/markdown';
  */
 
 describe('Session #2 E2E: Markdown Rendering in Chat', () => {
-  let chatContainer: HTMLDivElement;
   let messageContainer: HTMLElement;
 
   beforeEach(() => {
@@ -27,7 +26,7 @@ describe('Session #2 E2E: Markdown Rendering in Chat', () => {
         <div id="input-area"></div>
       </div>
     `;
-    chatContainer = document.getElementById('chat-container') as HTMLDivElement;
+    document.getElementById('chat-container');
     messageContainer = document.getElementById('messages') as HTMLElement;
   });
 
@@ -245,10 +244,10 @@ See [the auth guide](https://example.com/auth) for details.`,
         },
       ];
 
-      conversation.forEach((msg, idx) => {
+      conversation.forEach((msg, _idx) => {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${msg.role}`;
-        msg.role === 'assistant' && messageContainer.appendChild(msgDiv);
+        if (msg.role === 'assistant') messageContainer.appendChild(msgDiv);
 
         if (msg.html && msg.role === 'assistant') {
           renderMarkdown(msgDiv, msg.content);

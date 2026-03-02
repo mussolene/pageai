@@ -16,7 +16,6 @@ import type { Source } from '../src/search/sources';
  */
 
 describe('Session #3 E2E: Source Links & Citations', () => {
-  let chatContainer: HTMLDivElement;
   let messageContainer: HTMLElement;
 
   beforeEach(() => {
@@ -25,7 +24,6 @@ describe('Session #3 E2E: Source Links & Citations', () => {
         <div id="messages" style="display: flex; flex-direction: column; gap: 8px;"></div>
       </div>
     `;
-    chatContainer = document.getElementById('chat-container') as HTMLDivElement;
     messageContainer = document.getElementById('messages') as HTMLElement;
   });
 
@@ -385,8 +383,6 @@ npm install package
           url: `https://example.com/source/${i + 1}`,
         }));
 
-      const msgDiv = document.createElement('div');
-      const sourcesContainer = document.createElement('div');
       const sourcesList = document.createElement('ul');
 
       const startTime = performance.now();
@@ -433,7 +429,7 @@ npm install package
 Источники:
 1. [Documentation](https://example.com/docs)`;
 
-      const { content, sources } = parseLlmResponse(response);
+      const { content } = parseLlmResponse(response);
       const highlighted = highlightInlineCitations(content);
 
       const msgDiv = document.createElement('div');

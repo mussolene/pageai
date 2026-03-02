@@ -43,13 +43,21 @@ describe("checkMcpConnection", () => {
   it("returns ok for 200 + valid JSON", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
       text: () => Promise.resolve('{"jsonrpc":"2.0","id":1,"result":{}}'),
     });
     const r = await checkMcpConnection("http://localhost:8007/mcp");
     expect(r.ok).toBe(true);
     expect(global.fetch).toHaveBeenCalledWith(
       "http://localhost:8007/mcp",
-      expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json" } })
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        }),
+      })
     );
   });
 
@@ -67,6 +75,8 @@ describe("checkMcpConnection", () => {
   it("returns error when response is not valid JSON", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
       text: () => Promise.resolve("not json"),
     });
     const r = await checkMcpConnection("http://localhost:8007/mcp");
@@ -91,6 +101,8 @@ describe("checkMcpConnection", () => {
   it("trims URL before use", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
       text: () => Promise.resolve("{}"),
     });
     await checkMcpConnection("  http://localhost:8007/mcp  ");
@@ -103,6 +115,8 @@ describe("checkMcpConnection", () => {
   it("sends custom headers when options.headers provided", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
       text: () => Promise.resolve("{}"),
     });
     await checkMcpConnection("http://localhost:8007/mcp", {
@@ -230,19 +244,21 @@ describe("listMcpTools", () => {
   });
 
   it("returns tools when initialize and tools/list succeed", async () => {
+    const toolsPayload = {
+      result: {
+        tools: [
+          { name: "tool_a", description: "Does A" },
+          { name: "tool_b", inputSchema: {} },
+        ],
+      },
+    };
     (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({
         ok: true,
-        json: () =>
-          Promise.resolve({
-            result: {
-              tools: [
-                { name: "tool_a", description: "Does A" },
-                { name: "tool_b", inputSchema: {} },
-              ],
-            },
-          }),
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve(JSON.stringify(toolsPayload)),
       });
     const r = await listMcpTools("http://localhost:8007/mcp");
     expect("error" in r).toBe(false);
@@ -265,10 +281,12 @@ describe("listMcpTools", () => {
 
   it("returns error when tools/list returns JSON-RPC error", async () => {
     (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ error: { message: "Not authorized" } }),
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve(JSON.stringify({ error: { message: "Not authorized" } })),
       });
     const r = await listMcpTools("http://localhost:8007/mcp");
     expect("error" in r).toBe(true);
@@ -277,10 +295,12 @@ describe("listMcpTools", () => {
 
   it("returns empty tools when result.tools is missing", async () => {
     (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ result: {} }),
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve(JSON.stringify({ result: {} })),
       });
     const r = await listMcpTools("http://localhost:8007/mcp");
     if (!("error" in r)) expect(r.tools).toEqual([]);
@@ -313,15 +333,16 @@ describe("callMcpTool", () => {
     expect("error" in r).toBe(true);
   });
 
-  it("returns text from result.content on success", async () => {
+  it("returns text from result.content on success (stateless)", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          result: {
-            content: [{ type: "text", text: "Temperature: 72°F" }],
-          },
-        }),
+      headers: { get: () => "application/json" },
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            result: { content: [{ type: "text", text: "Temperature: 72°F" }] },
+          })
+        ),
     });
     const r = await callMcpTool("http://localhost:8007/mcp", "get_weather");
     expect("error" in r).toBe(false);
@@ -331,15 +352,18 @@ describe("callMcpTool", () => {
   it("concatenates multiple content items", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          result: {
-            content: [
-              { type: "text", text: "Part one. " },
-              { type: "text", text: "Part two." },
-            ],
-          },
-        }),
+      headers: { get: () => "application/json" },
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            result: {
+              content: [
+                { type: "text", text: "Part one. " },
+                { type: "text", text: "Part two." },
+              ],
+            },
+          })
+        ),
     });
     const r = await callMcpTool("http://localhost:8007/mcp", "multi");
     if (!("error" in r)) expect(r.text).toBe("Part one. Part two.");
@@ -348,10 +372,15 @@ describe("callMcpTool", () => {
   it("sends tool name and arguments in request body", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ result: { content: [{ type: "text", text: "ok" }] } }),
+      headers: { get: () => "application/json" },
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({ result: { content: [{ type: "text", text: "ok" }] } })
+        ),
     });
     await callMcpTool("http://localhost:8007/mcp", "get_weather", { location: "Moscow" });
-    const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    const toolsCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse(toolsCall[1].body);
     expect(body.method).toBe("tools/call");
     expect(body.params.name).toBe("get_weather");
     expect(body.params.arguments).toEqual({ location: "Moscow" });
@@ -360,7 +389,8 @@ describe("callMcpTool", () => {
   it("sends empty object when args omitted", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ result: { content: [] } }),
+      headers: { get: () => "application/json" },
+      text: () => Promise.resolve(JSON.stringify({ result: { content: [] } })),
     });
     await callMcpTool("http://localhost:8007/mcp", "no_args");
     const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
@@ -370,7 +400,9 @@ describe("callMcpTool", () => {
   it("returns error when response has error.message", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ error: { message: "Tool not found" } }),
+      headers: { get: () => "application/json" },
+      text: () =>
+        Promise.resolve(JSON.stringify({ error: { message: "Tool not found" } })),
     });
     const r = await callMcpTool("http://localhost:8007/mcp", "unknown_tool");
     expect("error" in r).toBe(true);
@@ -380,14 +412,49 @@ describe("callMcpTool", () => {
   it("returns error when content is not array", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ result: { content: "not-array" } }),
+      headers: { get: () => "application/json" },
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({ result: { content: "not-array" } })
+        ),
     });
     const r = await callMcpTool("http://localhost:8007/mcp", "bad");
     expect("error" in r).toBe(true);
     if ("error" in r) expect(r.error).toContain("content");
   });
 
-  it("returns error when HTTP not ok", async () => {
+  it("retries with session when tools/call returns 400", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, status: 400 })
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "application/json" },
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({ result: { content: [{ type: "text", text: "Session OK" }] } })
+          ),
+      });
+    const r = await callMcpTool("http://localhost:8007/mcp", "get_weather");
+    expect("error" in r).toBe(false);
+    if (!("error" in r)) expect(r.text).toBe("Session OK");
+  });
+
+  it("returns error when initialize fails (on 400 retry)", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, status: 400 })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Server Error",
+      });
+    const r = await callMcpTool("http://localhost:8007/mcp", "get_weather");
+    expect("error" in r).toBe(true);
+    if ("error" in r) expect(r.error).toContain("Initialize");
+  });
+
+  it("returns error when tools/call HTTP not ok", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -401,7 +468,8 @@ describe("callMcpTool", () => {
   it("uses custom headers when options provided", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ result: { content: [] } }),
+      headers: { get: () => "application/json" },
+      text: () => Promise.resolve(JSON.stringify({ result: { content: [] } })),
     });
     await callMcpTool("http://localhost:8007/mcp", "tool", undefined, {
       headers: { Authorization: "Bearer x" },

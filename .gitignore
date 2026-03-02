@@ -27,3 +27,6 @@ pnpm-debug.log*
 *.swp
 *.swo
 Thumbs.db
+
+# Extracted Docker image contents (from scripts/extract-docker-image)
+*-latest/

@@ -7,6 +7,31 @@ import { callMcpTool } from "../mcp/client";
 
 const storage = new Storage();
 
+/** Диагностический инструмент: модель вызывает его по запросу "проверь инструменты". */
+const MCP_DIAGNOSE_TOOL: OpenAITool = {
+  type: "function",
+  function: {
+    name: "mcp_diagnose",
+    description: "Run MCP tools connectivity check. Call when user asks to verify/check if tools are connected, e.g. 'проверь инструменты', 'check MCP', 'are tools connected'."
+  }
+};
+
+async function runMcpDiagnose(): Promise<string> {
+  const loaded = await getEnabledMcpToolsWithMap();
+  if ("error" in loaded) return `Config error: ${loaded.error}`;
+  if (loaded.tools.length > 0) {
+    const names = loaded.tools.map((t) => t.function.name).join(", ");
+    return `OK: ${loaded.tools.length} tool(s) loaded: ${names}`;
+  }
+  if (!loaded.mcpConfigured) return "No MCP servers configured.";
+  const errs = loaded.loadErrors && Object.keys(loaded.loadErrors).length > 0
+    ? Object.entries(loaded.loadErrors)
+        .map(([n, m]) => `${n}: ${m}`)
+        .join("\n")
+    : "No specific errors captured.";
+  return `Tools failed to load.\nErrors:\n${errs}\n\nSuggest: 1) Start 1C configurator (1c -config [path] -start); 2) Verify MCP server is running; 3) Check Settings → MCP.`;
+}
+
 const PAGE_LOAD_ERROR =
   "Please wait for the page to load completely, then try again.";
 const PAGE_ACCESS_ERROR =
@@ -132,7 +157,11 @@ function parseThinkingFromText(text: string): { text: string; thinking?: string 
  * чтобы любой ИИ (LM Studio, OpenAI-совместимый и др.) знал о доступных инструментах.
  */
 function buildSystemPromptWithToolStatus(
-  loaded: { tools: OpenAITool[]; mcpConfigured: boolean },
+  loaded: {
+    tools: OpenAITool[];
+    mcpConfigured: boolean;
+    loadErrors?: Record<string, string>;
+  },
   basePrompt: string
 ): string {
   if (loaded.tools.length > 0) {
@@ -144,9 +173,18 @@ function buildSystemPromptWithToolStatus(
 [TOOLS CONNECTED] MCP tools are connected to this chat. You MUST use them when the user asks to send a notification, message, or to perform an action that a tool provides. Call tools via the tool_calls response format (OpenAI function calling). Do NOT say that tools are not connected — they are. Available tools: ${toolList}.`;
   }
   if (loaded.mcpConfigured) {
+    const errLines =
+      loaded.loadErrors && Object.keys(loaded.loadErrors).length > 0
+        ? "\nLoad errors: " +
+          Object.entries(loaded.loadErrors)
+            .map(([name, msg]) => `${name}: ${msg}`)
+            .join("; ")
+        : "";
     return `${basePrompt}
 
-[MCP CONFIGURED] The user has MCP tools configured in settings, but they could not be loaded (server may be unreachable). Do not say "tools are not connected to the chat" — they are configured; suggest checking that the MCP server is running and the URL is correct.`;
+[MCP CONFIGURED] MCP tools are configured but could not be loaded.${errLines}
+
+You have the mcp_diagnose tool. When the user asks to check/verify tools ("проверь инструменты", "check MCP", "are tools connected?", etc.) — call mcp_diagnose and report its result. Do NOT proactively say the server is unreachable.`;
   }
   return basePrompt;
 }
@@ -180,8 +218,14 @@ async function executeToolCallsAndAppendMessages(
   });
   const results: ToolCallResult[] = [];
   for (const tc of toolCalls) {
-    const binding = toolToServer.get(tc.name);
     const argsStr = tc.arguments?.trim() ?? "";
+    if (tc.name === "mcp_diagnose") {
+      const content = await runMcpDiagnose();
+      messages.push({ role: "tool", tool_call_id: tc.id, content });
+      results.push({ name: tc.name, args: argsStr, result: content });
+      continue;
+    }
+    const binding = toolToServer.get(tc.name);
     if (!binding) {
       const content = `Error: unknown tool "${tc.name}"`;
       messages.push({ role: "tool", tool_call_id: tc.id, content });
@@ -224,7 +268,11 @@ async function runAgentStreamWithMcpTools(
 ): Promise<{ text: string; reasoningSteps: ReasoningStep[] } | { error: string }> {
   const loaded = await getEnabledMcpToolsWithMap();
   if ("error" in loaded) return { error: loaded.error };
-  const { tools, toolToServer } = loaded;
+  let { tools, toolToServer } = loaded;
+  if (tools.length === 0 && loaded.mcpConfigured) {
+    tools = [MCP_DIAGNOSE_TOOL];
+    toolToServer = new Map();
+  }
   if (tools.length === 0) {
     const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLMStream(
@@ -295,7 +343,11 @@ async function runAgentWithMcpTools(
 ): Promise<{ text: string } | { error: string }> {
   const loaded = await getEnabledMcpToolsWithMap();
   if ("error" in loaded) return { error: loaded.error };
-  const { tools, toolToServer } = loaded;
+  let { tools, toolToServer } = loaded;
+  if (tools.length === 0 && loaded.mcpConfigured) {
+    tools = [MCP_DIAGNOSE_TOOL];
+    toolToServer = new Map();
+  }
   if (tools.length === 0) {
     const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLM([{ role: "user", content: userMessage }], {

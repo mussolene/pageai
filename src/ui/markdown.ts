@@ -63,13 +63,13 @@ function parseInlineMarkdown(text: string): string {
 
   // Bold: **text** or __text__
   result = result.replace(
-    /\*\*([^\*]+)\*\*|__([^_]+)__/g,
+    /\*\*([^*]+)\*\*|__([^_]+)__/g,
     '<strong class="md-bold">$1$2</strong>'
   );
 
   // Italic: *text* or _text_
   result = result.replace(
-    /\*([^\*]+)\*|_([^_]+)_/g,
+    /\*([^*]+)\*|_([^_]+)_/g,
     '<em class="md-italic">$1$2</em>'
   );
 
@@ -253,7 +253,7 @@ function parseTables(text: string): string {
 function parseHorizontalRules(text: string): string {
   let result = text;
 
-  result = result.replace(/^(\-\-\-|\*\*\*|_{3,})$/gm, '<hr class="md-hr">');
+  result = result.replace(/^(---|\*\*\*|_{3,})$/gm, '<hr class="md-hr">');
 
   return result;
 }

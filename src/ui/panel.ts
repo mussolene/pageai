@@ -1,9 +1,8 @@
-import type { MessageFromPanel, ChatMessage, ReasoningStep } from "../types/messages";
+import type { ChatMessage, ReasoningStep } from "../types/messages";
 import { translate, getStoredLocale } from "../i18n";
 import { Storage } from "../storage/indexdb";
-import { markdownToHtml, renderMarkdown } from "./markdown";
+import { renderMarkdown } from "./markdown";
 import { parseLlmResponse, highlightInlineCitations, createSourceListItems } from "../search/sources";
-import type { Source } from "../search/sources";
 import { checkLlmConnection, getLMStudioModelsForEndpoint, normalizeEndpoint } from "../llm/client";
 import {
   checkMcpConnection,
@@ -138,14 +137,6 @@ async function buildReasoningStepElement(step: ReasoningStep): Promise<HTMLEleme
     wrap.appendChild(toolBlock);
   }
   return wrap;
-}
-
-function sendMessage<TResponse>(message: MessageFromPanel | { type: string }): Promise<TResponse> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response: TResponse) => {
-      resolve(response);
-    });
-  });
 }
 
 function addMessageToChat(message: ChatMessage, options?: { skipSave?: boolean }) {
@@ -288,19 +279,16 @@ async function renderMessages() {
       }
     } else {
       // Parse sources from assistant responses
-      let messageContent = msg.content;
-      let sources: Source[] = [];
-
+      const parsed = msg.role === "assistant" ? parseLlmResponse(msg.content) : null;
+      const messageContent = parsed ? parsed.content : msg.content;
+      const sources = parsed ? parsed.sources : [];
       if (msg.role === "assistant") {
-        const parsed = parseLlmResponse(msg.content);
-        messageContent = parsed.content;
-        sources = parsed.sources;
         const contentWithCitations = highlightInlineCitations(messageContent);
         const mdDiv = document.createElement("div");
         mdDiv.innerHTML = contentWithCitations;
         renderMarkdown(content, messageContent);
       } else {
-        renderMarkdown(content, msg.content);
+        renderMarkdown(content, msg.content ?? "");
       }
 
       inner.appendChild(content);

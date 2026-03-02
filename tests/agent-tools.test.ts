@@ -11,10 +11,10 @@ describe("getEnabledMcpToolsWithMap", () => {
   beforeEach(() => {
     vi.mocked(mcpClient.parseMcpServersList).mockReturnValue({ servers: [] });
     vi.mocked(mcpClient.listMcpTools).mockResolvedValue({ tools: [] });
-    (global as any).chrome = {
+    (global as unknown as { chrome: { storage: { sync: { get: (keys: object, cb: (r: Record<string, unknown>) => void) => void } } } }).chrome = {
       storage: {
         sync: {
-          get: (keys: any, cb: (r: any) => void) => {
+          get: (_keys: object, cb: (r: Record<string, unknown>) => void) => {
             cb({
               mcpServersConfig: "{}",
               mcpServersEnabled: {}
@@ -45,7 +45,7 @@ describe("getEnabledMcpToolsWithMap", () => {
         { name: "s2", url: "http://localhost:8008/mcp" }
       ]
     });
-    (global as any).chrome.storage.sync.get = (_: any, cb: (r: any) => void) =>
+    (global as unknown as { chrome: { storage: { sync: { get: (keys: object, cb: (r: Record<string, unknown>) => void) => void } } } }).chrome.storage.sync.get = (_: object, cb: (r: Record<string, unknown>) => void) =>
       cb({
         mcpServersConfig: '{"mcpServers":{"s1":{"url":"http://localhost:8007/mcp"},"s2":{"url":"http://localhost:8008/mcp"}}}',
         mcpServersEnabled: { s1: false, s2: false }
@@ -64,7 +64,7 @@ describe("getEnabledMcpToolsWithMap", () => {
     vi.mocked(mcpClient.listMcpTools).mockResolvedValue({
       tools: [{ name: "send_notification", description: "Send a notification", inputSchema: {} }]
     });
-    (global as any).chrome.storage.sync.get = (_: any, cb: (r: any) => void) =>
+    (global as unknown as { chrome: { storage: { sync: { get: (keys: object, cb: (r: Record<string, unknown>) => void) => void } } } }).chrome.storage.sync.get = (_: object, cb: (r: Record<string, unknown>) => void) =>
       cb({
         mcpServersConfig: '{"mcpServers":{"example":{"url":"http://localhost:8007/mcp"}}}',
         mcpServersEnabled: {}
@@ -87,7 +87,7 @@ describe("getEnabledMcpToolsWithMap", () => {
         { name: "search", description: "Search" }
       ]
     });
-    (global as any).chrome.storage.sync.get = (_: any, cb: (r: any) => void) =>
+    (global as unknown as { chrome: { storage: { sync: { get: (keys: object, cb: (r: Record<string, unknown>) => void) => void } } } }).chrome.storage.sync.get = (_: object, cb: (r: Record<string, unknown>) => void) =>
       cb({
         mcpServersConfig: '{"mcpServers":{"example":{"url":"http://localhost:8007/mcp"}}}',
         mcpServersEnabled: { example: true }
@@ -123,7 +123,7 @@ describe("getEnabledMcpToolsWithMap", () => {
     vi.mocked(mcpClient.listMcpTools)
       .mockResolvedValueOnce({ error: "Connection failed" })
       .mockResolvedValueOnce({ tools: [{ name: "tool_a", description: "A" }] });
-    (global as any).chrome.storage.sync.get = (_: any, cb: (r: any) => void) =>
+    (global as unknown as { chrome: { storage: { sync: { get: (keys: object, cb: (r: Record<string, unknown>) => void) => void } } } }).chrome.storage.sync.get = (_: object, cb: (r: Record<string, unknown>) => void) =>
       cb({
         mcpServersConfig: '{"mcpServers":{"bad":{"url":"http://localhost:8007/mcp"},"good":{"url":"http://localhost:8008/mcp"}}}',
         mcpServersEnabled: { bad: true, good: true }
@@ -146,7 +146,7 @@ describe("getEnabledMcpToolsWithMap", () => {
     vi.mocked(mcpClient.listMcpTools)
       .mockRejectedValueOnce(new Error("Network error"))
       .mockResolvedValueOnce({ tools: [{ name: "tool_a", description: "A" }] });
-    (global as any).chrome.storage.sync.get = (_: any, cb: (r: any) => void) =>
+    (global as unknown as { chrome: { storage: { sync: { get: (keys: object, cb: (r: Record<string, unknown>) => void) => void } } } }).chrome.storage.sync.get = (_: object, cb: (r: Record<string, unknown>) => void) =>
       cb({
         mcpServersConfig: '{"mcpServers":{"bad":{"url":"http://localhost:8007/mcp"},"good":{"url":"http://localhost:8008/mcp"}}}',
         mcpServersEnabled: { bad: true, good: true }

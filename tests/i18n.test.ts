@@ -1,21 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { getLocale, setLocale, t, getStoredLocale, translate } from "../src/i18n";
 
-describe("i18n", () => {
-  const originalLang = Object.getOwnPropertyDescriptor(global, "navigator")
-    ? (global as any).navigator?.language
-    : undefined;
+type ChromeMock = {
+  storage: { sync: { get: (k: object, cb: (r: Record<string, unknown>) => void) => void; set: ReturnType<typeof vi.fn> } };
+};
 
+describe("i18n", () => {
   beforeEach(() => {
     Object.defineProperty(global, "navigator", {
       value: { language: "en" },
       writable: true,
       configurable: true,
     });
-    (global as any).chrome = {
+    (global as unknown as { chrome: ChromeMock }).chrome = {
       storage: {
         sync: {
-          get: (keys: any, cb: (r: any) => void) => cb({ locale: "en" }),
+          get: (_k: object, cb: (r: Record<string, unknown>) => void) => cb({ locale: "en" }),
           set: vi.fn(),
         },
       },
@@ -28,22 +28,22 @@ describe("i18n", () => {
 
   describe("getLocale", () => {
     it("returns en for navigator.language en", () => {
-      (global as any).navigator = { language: "en" };
+      (global as unknown as { navigator: { language: string } }).navigator = { language: "en" };
       expect(getLocale()).toBe("en");
     });
 
     it("returns ru for navigator.language ru", () => {
-      (global as any).navigator = { language: "ru" };
+      (global as unknown as { navigator: { language: string } }).navigator = { language: "ru" };
       expect(getLocale()).toBe("ru");
     });
 
     it("returns en for unsupported language", () => {
-      (global as any).navigator = { language: "fr" };
+      (global as unknown as { navigator: { language: string } }).navigator = { language: "fr" };
       expect(getLocale()).toBe("en");
     });
 
     it("uses first part of language tag", () => {
-      (global as any).navigator = { language: "ru-RU" };
+      (global as unknown as { navigator: { language: string } }).navigator = { language: "ru-RU" };
       expect(getLocale()).toBe("ru");
     });
   });
@@ -70,16 +70,16 @@ describe("i18n", () => {
 
   describe("getStoredLocale", () => {
     it("resolves with stored locale", async () => {
-      (global as any).chrome.storage.sync.get = (keys: any, cb: (r: any) => void) =>
+      (global as unknown as { chrome: ChromeMock }).chrome.storage.sync.get = (_k: object, cb: (r: Record<string, unknown>) => void) =>
         cb({ locale: "ru" });
       const locale = await getStoredLocale();
       expect(locale).toBe("ru");
     });
 
     it("resolves with getLocale() when storage empty", async () => {
-      (global as any).chrome.storage.sync.get = (keys: any, cb: (r: any) => void) =>
+      (global as unknown as { chrome: ChromeMock }).chrome.storage.sync.get = (_k: object, cb: (r: Record<string, unknown>) => void) =>
         cb({});
-      (global as any).navigator = { language: "en" };
+      (global as unknown as { navigator: { language: string } }).navigator = { language: "en" };
       const locale = await getStoredLocale();
       expect(["en", "ru"]).toContain(locale);
     });
@@ -87,7 +87,7 @@ describe("i18n", () => {
 
   describe("translate", () => {
     it("returns translated string for key", async () => {
-      (global as any).chrome.storage.sync.get = (keys: any, cb: (r: any) => void) =>
+      (global as unknown as { chrome: ChromeMock }).chrome.storage.sync.get = (_k: object, cb: (r: Record<string, unknown>) => void) =>
         cb({ locale: "en" });
       const s = await translate("chat.send");
       expect(s).toBe("Send");
@@ -97,7 +97,7 @@ describe("i18n", () => {
   describe("setLocale", () => {
     it("calls chrome.storage.sync.set", () => {
       setLocale("ru");
-      expect((global as any).chrome.storage.sync.set).toHaveBeenCalledWith({ locale: "ru" });
+      expect((global as unknown as { chrome: ChromeMock }).chrome.storage.sync.set).toHaveBeenCalledWith({ locale: "ru" });
     });
   });
 });
