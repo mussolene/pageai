@@ -150,11 +150,17 @@ body.standalone-window .header {
 .header-with-actions {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.header-with-actions .title { flex: 1; }
-.header-with-actions .subtitle { flex: 1; }
+.header-with-actions .header-main { flex: 1; min-width: 0; }
+.header-with-actions .header-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .popup-expand-btn {
   flex-shrink: 0;
@@ -772,9 +778,73 @@ button {
   flex-wrap: wrap;
 }
 
+.settings-row.endpoint-row {
+  flex-wrap: nowrap;
+}
+
+.endpoint-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 .settings-content button.secondary {
   background: var(--bg-elevated);
   border-color: var(--border);
+}
+
+.browser-automation-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  cursor: pointer;
+}
+
+.browser-automation-row .toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.browser-automation-row .toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border);
+  transition: background var(--transition);
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.browser-automation-row .toggle::after {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  box-shadow: var(--elevation-1);
+  transition: transform var(--transition);
+}
+
+.browser-automation-row .toggle-input:checked + .toggle {
+  background: var(--accent);
+}
+
+.browser-automation-row .toggle-input:checked + .toggle::after {
+  transform: translateX(20px);
+}
+
+.browser-automation-row .label-text {
+  margin: 0;
 }
 
 .model-select {
@@ -791,6 +861,48 @@ button {
   margin: 12px 0;
   border: none;
   border-top: 1px solid var(--border);
+}
+
+/* Theme toggle: в углу верха, компактный, квадратные кнопки */
+.theme-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.theme-toggle-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.theme-toggle-btn:last-child {
+  border-right: none;
+}
+
+.theme-toggle-btn:hover {
+  color: var(--text);
+}
+
+.theme-toggle-btn[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.theme-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .mcp-servers-list { margin: 8px 0; padding: 0; }

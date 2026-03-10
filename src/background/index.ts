@@ -16,6 +16,87 @@ const MCP_DIAGNOSE_TOOL: OpenAITool = {
   }
 };
 
+/** Клик по элементу на текущей вкладке. */
+const PAGE_CLICK_TOOL: OpenAITool = {
+  type: "function",
+  function: {
+    name: "page_click",
+    description:
+      "User wants to activate something on the page: click, press, open, submit. Use for buttons, links, tabs, any clickable. Pass visible text or selector.",
+    parameters: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "Visible text/label of element (e.g. 'Submit', 'Войти')"
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector if text is ambiguous"
+        }
+      }
+    }
+  }
+};
+
+/** Ввод текста в поле на странице. */
+const PAGE_FILL_TOOL: OpenAITool = {
+  type: "function",
+  function: {
+    name: "page_fill",
+    description:
+      "User wants to put text into a field: type, write, fill, insert, paste. Use for search, comment, form inputs, any input/textarea. Infer field from context (search, comment, query, etc.).",
+    parameters: {
+      type: "object",
+      properties: {
+        field: {
+          type: "string",
+          description: "How to find field: placeholder/label/name (e.g. search, comment, query, поиск, запрос)"
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector if needed"
+        },
+        value: {
+          type: "string",
+          description: "Text to put in the field"
+        }
+      },
+      required: ["value"]
+    }
+  }
+};
+
+const WEB_SEARCH_ENGINES: Record<string, (q: string) => string> = {
+  duckduckgo: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}`,
+  google: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+  yandex: (q) => `https://yandex.ru/search/?text=${encodeURIComponent(q)}`
+};
+
+/** Поиск в интернете: открывает вкладку с результатами (DuckDuckGo, Google, Yandex). */
+const WEB_SEARCH_TOOL: OpenAITool = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "User wants to search the web: find, look up, search internet. Opens search results in a new tab. Use DuckDuckGo, Google or Yandex.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query"
+        },
+        engine: {
+          type: "string",
+          description: "Optional: duckduckgo (default), google, yandex"
+        }
+      },
+      required: ["query"]
+    }
+  }
+};
+
 async function runMcpDiagnose(): Promise<string> {
   const loaded = await getEnabledMcpToolsWithMap();
   if ("error" in loaded) return `Config error: ${loaded.error}`;
@@ -170,7 +251,9 @@ function buildSystemPromptWithToolStatus(
       .join("; ");
     return `${basePrompt}
 
-[TOOLS CONNECTED] MCP tools are connected to this chat. You MUST use them when the user asks to send a notification, message, or to perform an action that a tool provides. Call tools via the tool_calls response format (OpenAI function calling). Do NOT say that tools are not connected — they are. Available tools: ${toolList}.`;
+[TOOLS] ${toolList}
+
+[INTENT] Infer from natural language. Click/press/activate on page → page_click. Type/write/fill into a field → page_fill (field: search/comment/поиск/запрос, value: text). Search the web/look up/find online → web_search (query, optional engine: duckduckgo|google|yandex). Use tool_calls; no exact wording needed.`;
   }
   if (loaded.mcpConfigured) {
     const errLines =
@@ -198,6 +281,43 @@ export interface ToolCallResult {
 }
 
 /**
+ * Парсит из текста ответа модели вызовы в XML-подобном формате
+ * (<function=name> <parameter=key>value</parameter> ... </function>)
+ * и возвращает массив tool_calls для выполнения.
+ */
+function parseXmlStyleToolCalls(
+  text: string
+): Array<{ id: string; name: string; arguments: string }> {
+  const out: Array<{ id: string; name: string; arguments: string }> = [];
+  const seenKeys = new Set<string>();
+  const funcRegex = /<function=(\w+)>([\s\S]*?)<\/function>/gi;
+  let i = 0;
+  let m: RegExpExecArray | null;
+  while ((m = funcRegex.exec(text)) !== null) {
+    const name = m[1].toLowerCase();
+    if (name !== "page_click" && name !== "page_fill" && name !== "web_search") continue;
+    const inner = m[2];
+    const args: Record<string, string> = {};
+    const paramRegex = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/gi;
+    let pm: RegExpExecArray | null;
+    while ((pm = paramRegex.exec(inner)) !== null) {
+      args[pm[1].toLowerCase()] = pm[2].trim();
+    }
+    if (Object.keys(args).length === 0) continue;
+    const argsStr = JSON.stringify(args);
+    const key = `${name}:${argsStr}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    out.push({
+      id: `xml-${i++}`,
+      name,
+      arguments: argsStr
+    });
+  }
+  return out;
+}
+
+/**
  * Выполнить один раунд вызовов MCP по tool_calls и добавить сообщения в массив.
  * Возвращает список { name, args, result } для отображения в UI.
  */
@@ -217,12 +337,130 @@ async function executeToolCallsAndAppendMessages(
     tool_calls: assistantToolCalls
   });
   const results: ToolCallResult[] = [];
+  /** Повторные одинаковые page_click/page_fill не выполняем дважды — подставляем результат первого. */
+  const pageToolResultByKey = new Map<string, string>();
   for (const tc of toolCalls) {
     const argsStr = tc.arguments?.trim() ?? "";
     if (tc.name === "mcp_diagnose") {
       const content = await runMcpDiagnose();
       messages.push({ role: "tool", tool_call_id: tc.id, content });
       results.push({ name: tc.name, args: argsStr, result: content });
+      continue;
+    }
+    if (tc.name === "page_click") {
+      const key = `page_click:${argsStr}`;
+      const cached = pageToolResultByKey.get(key);
+      if (cached != null) {
+        messages.push({ role: "tool", tool_call_id: tc.id, content: cached });
+        continue;
+      }
+      let args: { text?: string; selector?: string } = {};
+      try {
+        if (argsStr) args = JSON.parse(argsStr) as { text?: string; selector?: string };
+      } catch {
+        /* leave args {} */
+      }
+      const tabs = await new Promise<chrome.tabs.Tab[]>((r) =>
+        chrome.tabs.query({ active: true, currentWindow: true }, r)
+      );
+      const tabId = tabs[0]?.id;
+      if (tabId == null) {
+        const content = "No active tab. Open the page where you want to click, then try again.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        continue;
+      }
+      const response = await new Promise<{ ok?: boolean; error?: string; message?: string }>((resolve) => {
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: "PAGE_CLICK", payload: args },
+          (res: { ok?: boolean; error?: string; message?: string } | undefined) => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message ?? "Content script not ready. Reload the page." });
+            } else {
+              resolve(res ?? { ok: false, error: "No response" });
+            }
+          }
+        );
+      });
+      const content = response.ok ? (response.message ?? "Clicked") : (response.error ?? "Failed");
+      pageToolResultByKey.set(key, content);
+      messages.push({ role: "tool", tool_call_id: tc.id, content });
+      results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+      continue;
+    }
+    if (tc.name === "page_fill") {
+      const key = `page_fill:${argsStr}`;
+      const cached = pageToolResultByKey.get(key);
+      if (cached != null) {
+        messages.push({ role: "tool", tool_call_id: tc.id, content: cached });
+        continue;
+      }
+      let args: { field?: string; selector?: string; value?: string } = {};
+      try {
+        if (argsStr) args = JSON.parse(argsStr) as { field?: string; selector?: string; value?: string };
+      } catch {
+        /* leave args {} */
+      }
+      const tabs = await new Promise<chrome.tabs.Tab[]>((r) =>
+        chrome.tabs.query({ active: true, currentWindow: true }, r)
+      );
+      const tabId = tabs[0]?.id;
+      if (tabId == null) {
+        const content = "No active tab. Open the page where you want to fill the field, then try again.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        continue;
+      }
+      const response = await new Promise<{ ok?: boolean; error?: string; message?: string }>((resolve) => {
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: "PAGE_FILL", payload: args },
+          (res: { ok?: boolean; error?: string; message?: string } | undefined) => {
+            if (chrome.runtime.lastError) {
+              resolve({
+                ok: false,
+                error: chrome.runtime.lastError.message ?? "Content script not ready. Reload the page."
+              });
+            } else {
+              resolve(res ?? { ok: false, error: "No response" });
+            }
+          }
+        );
+      });
+      const content = response.ok ? (response.message ?? "Filled") : (response.error ?? "Failed");
+      pageToolResultByKey.set(key, content);
+      messages.push({ role: "tool", tool_call_id: tc.id, content });
+      results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+      continue;
+    }
+    if (tc.name === "web_search") {
+      let args: { query?: string; engine?: string } = {};
+      try {
+        if (argsStr) args = JSON.parse(argsStr) as { query?: string; engine?: string };
+      } catch {
+        /* leave args {} */
+      }
+      const query = (args.query ?? "").trim();
+      if (!query) {
+        const content = "Missing search query.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "web", args: argsStr, result: content });
+        continue;
+      }
+      const engineKey = (args.engine ?? "duckduckgo").toLowerCase();
+      const buildUrl = WEB_SEARCH_ENGINES[engineKey] ?? WEB_SEARCH_ENGINES.duckduckgo;
+      const url = buildUrl(query);
+      try {
+        await chrome.tabs.create({ url });
+        const content = `Opened search in new tab (${engineKey}).`;
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "web", args: argsStr, result: content });
+      } catch (err) {
+        const content = (err instanceof Error ? err.message : String(err)) || "Failed to open tab.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "web", args: argsStr, result: content });
+      }
       continue;
     }
     const binding = toolToServer.get(tc.name);
@@ -273,7 +511,17 @@ async function runAgentStreamWithMcpTools(
     tools = [MCP_DIAGNOSE_TOOL];
     toolToServer = new Map();
   }
+  const { browserAutomationEnabled } = await new Promise<{ browserAutomationEnabled: boolean }>((r) =>
+    chrome.storage.sync.get({ browserAutomationEnabled: false }, r)
+  );
+  const pageTools: OpenAITool[] = browserAutomationEnabled ? [PAGE_CLICK_TOOL, PAGE_FILL_TOOL] : [];
+  const builtins = [...pageTools, WEB_SEARCH_TOOL];
+  const openAITools: OpenAITool[] =
+    tools.length > 0 ? [...tools, ...builtins] : builtins.length > 0 ? builtins : [];
   if (tools.length === 0) {
+    toolToServer = new Map();
+  }
+  if (openAITools.length === 0) {
     const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLMStream(
       [{ role: "user", content: userMessage }],
@@ -286,8 +534,6 @@ async function runAgentStreamWithMcpTools(
         : [];
     return { text: result.text, reasoningSteps: steps };
   }
-
-  const openAITools: OpenAITool[] = tools;
   const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
   const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
   const reasoningSteps: ReasoningStep[] = [];
@@ -302,6 +548,38 @@ async function runAgentStreamWithMcpTools(
 
     if ("error" in result) return result;
     if (!("tool_calls" in result) || !result.tool_calls || result.tool_calls.length === 0) {
+      const xmlCalls =
+        browserAutomationEnabled ? parseXmlStyleToolCalls(result.text ?? "") : [];
+      if (xmlCalls.length > 0) {
+        const roundSteps: ReasoningStep[] = [];
+        if (result.thinking != null && result.thinking !== "") {
+          reasoningSteps.push({ type: "thinking", text: result.thinking });
+          roundSteps.push({ type: "thinking", text: result.thinking });
+        }
+        const toolResults = await executeToolCallsAndAppendMessages(
+          xmlCalls,
+          toolToServer,
+          messages
+        );
+        for (const tr of toolResults) {
+          const serverName =
+            tr.serverName != null && String(tr.serverName).trim() !== ""
+              ? String(tr.serverName).trim()
+              : "mcp";
+          const step: ReasoningStep = {
+            type: "tool_call",
+            name: tr.name,
+            serverName,
+            args: tr.args || undefined,
+            result: tr.result
+          };
+          reasoningSteps.push(step);
+          roundSteps.push(step);
+        }
+        safePortPost(port, { type: "reasoning_step", steps: roundSteps });
+        const summary = toolResults.map((r) => r.result).join(". ");
+        return { text: summary || result.text, reasoningSteps };
+      }
       if (result.thinking != null && result.thinking !== "") {
         reasoningSteps.push({ type: "thinking", text: result.thinking });
       }
@@ -348,27 +626,49 @@ async function runAgentWithMcpTools(
     tools = [MCP_DIAGNOSE_TOOL];
     toolToServer = new Map();
   }
+  const { browserAutomationEnabled } = await new Promise<{ browserAutomationEnabled: boolean }>((r) =>
+    chrome.storage.sync.get({ browserAutomationEnabled: false }, r)
+  );
+  const pageToolsForAgent: OpenAITool[] = browserAutomationEnabled ? [PAGE_CLICK_TOOL, PAGE_FILL_TOOL] : [];
+  const builtinsForAgent = [...pageToolsForAgent, WEB_SEARCH_TOOL];
+  const openAIToolsForAgent: OpenAITool[] =
+    tools.length > 0 ? [...tools, ...builtinsForAgent] : builtinsForAgent.length > 0 ? builtinsForAgent : [];
   if (tools.length === 0) {
+    toolToServer = new Map();
+  }
+  if (openAIToolsForAgent.length === 0) {
     const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLM([{ role: "user", content: userMessage }], {
       systemPrompt: promptWithStatus
     });
-    if ("error" in result) return { error: result.error };
+    if ("error" in result) return result;
     return { text: result.text };
   }
 
-  const openAITools: OpenAITool[] = tools;
   const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
   const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
 
   for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
     const result = await chatWithLLMOneRound(messages, {
       systemPrompt: systemPromptWithTools,
-      tools: openAITools
+      tools: openAIToolsForAgent
     });
 
     if ("error" in result) return result;
-    if ("text" in result) return { text: result.text };
+    if ("text" in result) {
+      const xmlCalls =
+        browserAutomationEnabled ? parseXmlStyleToolCalls(result.text) : [];
+      if (xmlCalls.length > 0) {
+        const toolResults = await executeToolCallsAndAppendMessages(
+          xmlCalls,
+          toolToServer,
+          messages
+        );
+        const summary = toolResults.map((r) => r.result).join(". ");
+        return { text: summary || result.text };
+      }
+      return { text: result.text };
+    }
 
     const toolCalls = result.tool_calls;
     if (!toolCalls || toolCalls.length === 0) break;

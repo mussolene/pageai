@@ -1,6 +1,6 @@
 {
   "name": "page-ai",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Local-first Chrome extension for AI chat on any page with your own LLM.",
   "license": "MIT",
@@ -23,7 +23,7 @@
   "scripts": {
     "icons": "node ./scripts/build-icons.mjs",
     "dev": "node ./scripts/dev.mjs",
-    "build": "NODE_ENV=production node ./scripts/dev.mjs --prod",
+    "build": "node ./scripts/dev.mjs --prod",
     "predev": "npm run icons",
     "prebuild": "npm run icons",
     "lint": "eslint src tests",

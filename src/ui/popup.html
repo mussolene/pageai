@@ -10,10 +10,19 @@
 
 <body>
   <div id="app">
-    <header class="header header-with-actions">
-      <h1 class="title">Page AI</h1>
-      <p class="subtitle" id="subtitle">Chat with current page</p>
-      <button type="button" id="popup-expand-btn" class="popup-expand-btn" title="Open in resizable window" aria-label="Open in window">↗</button>
+    <header class="header header-with-actions header-with-theme">
+      <div class="header-main">
+        <h1 class="title">Page AI</h1>
+        <p class="subtitle" id="subtitle">Chat with current page</p>
+      </div>
+      <div class="header-actions">
+        <div class="theme-toggle" role="group" aria-label="Theme">
+          <button type="button" class="theme-toggle-btn" data-theme="light" aria-pressed="false" aria-label="Light theme" title="Light">☀</button>
+          <button type="button" class="theme-toggle-btn" data-theme="dark" aria-pressed="false" aria-label="Dark theme" title="Dark">☽</button>
+          <button type="button" class="theme-toggle-btn" data-theme="system" aria-pressed="true" aria-label="System theme" title="Auto">◐</button>
+        </div>
+        <button type="button" id="popup-expand-btn" class="popup-expand-btn" title="Open in resizable window" aria-label="Open in window">↗</button>
+      </div>
     </header>
 
     <nav class="tab-bar" role="tablist">
@@ -37,43 +46,22 @@
 
     <div id="settings-panel" class="settings-panel tab-panel hidden">
       <div class="settings-content">
-          <label>
-            <span class="label-text">Endpoint type</span>
-            <select id="llm-endpoint-type" aria-label="Endpoint type">
-              <option value="chat">Chat (OpenAI-compatible)</option>
-              <option value="custom">Custom URL</option>
-            </select>
-          </label>
-          <label>
-            <span class="label-text">LLM Endpoint</span>
-            <input id="llm-endpoint" type="text" placeholder="http://localhost:1234" />
-          </label>
-          <label>
-            <span class="label-text">Model</span>
-            <input id="llm-model" type="text" placeholder="qwen/qwen3-4b-2507" />
-          </label>
-          <div class="settings-row">
-            <button id="llm-fetch-models" type="button" class="secondary">Fetch models</button>
-            <select id="llm-model-select" class="model-select" aria-label="Choose model"></select>
-          </div>
-          <label>
-            <span class="label-text">API Key (optional)</span>
-            <input id="llm-api-key" type="password" />
+          <label class="llm-config-row">
+            <span class="label-text">LLM</span>
+            <div class="settings-row endpoint-row">
+              <select id="llm-config-select" class="model-select" aria-label="LLM config"></select>
+              <button id="llm-config-open-options" type="button" class="secondary" title="Add or edit configs">Add…</button>
+            </div>
           </label>
           <label>
             <span class="label-text">Max tokens</span>
             <input id="llm-max-tokens" type="number" min="128" max="32768" placeholder="2048" />
           </label>
-          <button id="llm-save">Save LLM Config</button>
           <span id="llm-status" class="status"></span>
-          <hr class="settings-sep" />
-          <label>
-            <span class="label-text">Theme</span>
-            <select id="theme-select" aria-label="Theme">
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
+          <label class="browser-automation-row">
+            <input type="checkbox" id="browser-automation-enabled" class="toggle-input" />
+            <span class="toggle" aria-hidden="true"></span>
+            <span class="label-text">Browser automation</span>
           </label>
           <hr class="settings-sep" />
           <label>
@@ -81,10 +69,7 @@
             <textarea id="mcp-servers-config" rows="10" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
           </label>
           <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
-          <div class="settings-row">
-            <button id="mcp-check" type="button" class="secondary">Check MCP</button>
-            <span id="mcp-status" class="status"></span>
-          </div>
+          <span id="mcp-status" class="status"></span>
       </div>
     </div>
   </div>

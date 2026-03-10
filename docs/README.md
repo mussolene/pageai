@@ -13,5 +13,6 @@
 | [UX-USABILITY.md](UX-USABILITY.md) | Юзабилити и рекомендации по UI |
 | [ROADMAP.md](ROADMAP.md) | План развития (стриминг, MCP UI, модель под чатом) |
 | [PLATFORM_LIMITATIONS.md](PLATFORM_LIMITATIONS.md) | Ограничения фона расширений (Chrome 30s fetch, Firefox, Safari), обрыв стрима, рекомендации |
+| [PROJECT_ANALYSIS.md](PROJECT_ANALYSIS.md) | Анализ пробелов проекта и рекомендации по реализации |
 
 В корне репозитория: [README.md](../README.md), [CONTRIBUTING.md](../CONTRIBUTING.md), [AGENTS.md](../AGENTS.md), [agent.md](../agent.md).
