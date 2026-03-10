@@ -1,12 +1,12 @@
-import type { ChatMessage, ReasoningStep } from "../types/messages";
+import type { ChatMessage, ReasoningStep, SearchResult } from "../types/messages";
 import { translate, getStoredLocale } from "../i18n";
 import { Storage } from "../storage/indexdb";
 import { renderMarkdown } from "./markdown";
 import { parseLlmResponse, highlightInlineCitations, createSourceListItems } from "../search/sources";
-import { checkLlmConnection, getLMStudioModelsForEndpoint, normalizeEndpoint } from "../llm/client";
+import { keywordSearch } from "../search/keyword";
+import { rerank } from "../search/rerank";
+import { getLlmConfigsAndActive, setActiveLlmConfigId } from "../llm/client";
 import {
-  checkMcpConnection,
-  parseMcpServersConfigForCheck,
   parseMcpServersList,
   listMcpTools,
   getDefaultMcpServersConfig
@@ -17,28 +17,34 @@ const messagesContainer = document.getElementById("messages") as HTMLDivElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
 const sendButton = document.getElementById("send-button") as HTMLButtonElement;
 const tabChat = document.getElementById("tab-chat") as HTMLButtonElement | null;
+const tabSearch = document.getElementById("tab-search") as HTMLButtonElement | null;
 const tabSettings = document.getElementById("tab-settings") as HTMLButtonElement | null;
 const settingsPanel = document.getElementById("settings-panel") as HTMLDivElement | null;
+const searchPanel = document.getElementById("search-panel") as HTMLDivElement | null;
+const searchPagesInput = document.getElementById("search-pages-input") as HTMLInputElement | null;
+const searchPagesBtn = document.getElementById("search-pages-btn") as HTMLButtonElement | null;
+const searchStatus = document.getElementById("search-status") as HTMLSpanElement | null;
+const searchResults = document.getElementById("search-results") as HTMLUListElement | null;
+const summarizeSelectedBtn = document.getElementById("summarize-selected-btn") as HTMLButtonElement | null;
 
-const llmEndpointTypeSelect = document.getElementById("llm-endpoint-type") as HTMLSelectElement | null;
-const llmEndpointInput = document.getElementById("llm-endpoint") as HTMLInputElement;
-const llmModelInput = document.getElementById("llm-model") as HTMLInputElement;
-const themeSelect = document.getElementById("theme-select") as HTMLSelectElement | null;
-const llmApiKeyInput = document.getElementById("llm-api-key") as HTMLInputElement;
-const llmSaveButton = document.getElementById("llm-save") as HTMLButtonElement;
+const llmConfigSelect = document.getElementById("llm-config-select") as HTMLSelectElement | null;
+const llmConfigOpenOptionsBtn = document.getElementById("llm-config-open-options") as HTMLButtonElement | null;
+const browserAutomationCheckbox = document.getElementById("browser-automation-enabled") as HTMLInputElement | null;
+const themeToggle = document.querySelector(".theme-toggle") as HTMLDivElement | null;
+const themeToggleBtns = (): NodeListOf<HTMLButtonElement> => document.querySelectorAll(".theme-toggle-btn");
 const llmStatus = document.getElementById("llm-status") as HTMLSpanElement;
-const llmFetchModelsBtn = document.getElementById("llm-fetch-models") as HTMLButtonElement | null;
-const llmModelSelect = document.getElementById("llm-model-select") as HTMLSelectElement | null;
 const llmMaxTokensInput = document.getElementById("llm-max-tokens") as HTMLInputElement | null;
 const mcpServersConfigInput = document.getElementById("mcp-servers-config") as HTMLTextAreaElement | null;
 const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivElement | null;
-const mcpCheckBtn = document.getElementById("mcp-check") as HTMLButtonElement | null;
 const mcpStatus = document.getElementById("mcp-status") as HTMLSpanElement | null;
 const chatModelSelect = document.getElementById("chat-model-select") as HTMLSelectElement | null;
 const clearChatBtn = document.getElementById("clear-chat-btn") as HTMLButtonElement | null;
 
 let chatHistory: ChatMessage[] = [];
 const storage = new Storage();
+
+/** Текущие результаты поиска по сохранённым страницам (для выбора и саммари). */
+let lastSearchResults: SearchResult[] = [];
 
 /** Индекс сообщения ассистента, которое сейчас стримится; блок «размышления» привязан к нему. */
 let streamingAssistantIndex: number | null = null;
@@ -219,7 +225,8 @@ async function renderMessages() {
       inner.appendChild(bubble);
       streamingAnswerEl = answerContent;
     } else if (msg.role === "assistant" && (msg.reasoningSteps?.length ?? 0) > 0) {
-      for (const step of msg.reasoningSteps) {
+      const steps = msg.reasoningSteps ?? [];
+      for (const step of steps) {
         const stepDiv = document.createElement("div");
         stepDiv.className = "message reasoning-step";
         const stepEl = await buildReasoningStepElement(step);
@@ -479,87 +486,66 @@ async function handleSendMessage() {
   }
 }
 
-function loadLlmConfig() {
+async function loadLlmConfig() {
+  const { configs, activeId, maxTokens } = await getLlmConfigsAndActive();
+  refreshConfigSelect(configs, activeId);
+  const syncTheme = await new Promise<Record<string, unknown>>((r) =>
+    chrome.storage.sync.get({ theme: "system" }, r)
+  );
+  const theme = ((syncTheme.theme as string) === "dark" || (syncTheme.theme as string) === "light"
+    ? syncTheme.theme
+    : "system") as "light" | "dark" | "system";
+  applyTheme(theme);
+  setThemeToggle(theme);
+  if (llmMaxTokensInput) llmMaxTokensInput.value = String(maxTokens ?? 2048);
   chrome.storage.sync.get(
-    {
-      llmEndpoint: "http://localhost:1234",
-      llmEndpointType: "chat" as "chat" | "custom",
-      llmModel: "qwen/qwen3-4b-2507",
-      llmTemperature: 0.7,
-      llmMaxTokens: 2048,
-      theme: "system" as "light" | "dark" | "system",
-      mcpServersConfig: "",
-      lastFetchedModels: [] as string[],
-      mcpServersEnabled: {} as Record<string, boolean>
-    },
+    { mcpServersConfig: "", mcpServerUrl: "", mcpHeaders: "", mcpServersEnabled: {} as Record<string, boolean> },
     (items) => {
-      const endpointType = items.llmEndpointType === "custom" ? "custom" : "chat";
-      if (llmEndpointTypeSelect) llmEndpointTypeSelect.value = endpointType;
-      let endpointDisplay = items.llmEndpoint ?? "";
-      if (endpointType === "chat" && endpointDisplay.endsWith("/v1/chat/completions")) {
-        endpointDisplay = endpointDisplay.replace(/\/v1\/chat\/completions\/?$/i, "");
-      }
-      llmEndpointInput.value = endpointDisplay;
-      llmModelInput.value = items.llmModel;
-      applyTheme(items.theme === "dark" ? "dark" : items.theme === "light" ? "light" : "system");
-      if (themeSelect) themeSelect.value = items.theme ?? "system";
-      chrome.storage.local.get({ llmApiKey: "" }, (local) => {
-        llmApiKeyInput.value = (local.llmApiKey as string) ?? "";
-      });
-      if (llmMaxTokensInput) llmMaxTokensInput.value = String(items.llmMaxTokens ?? 2048);
-      if (mcpServersConfigInput) {
-        let config = items.mcpServersConfig || "";
-        if (!config && items.mcpServerUrl) {
-          let headers: Record<string, string> | undefined;
-          if (items.mcpHeaders) {
-            try {
-              headers = JSON.parse(items.mcpHeaders as string) as Record<string, string>;
-            } catch {
-              /* ignore */
+      if (!mcpServersConfigInput) return;
+      let config = items.mcpServersConfig || "";
+      if (!config && items.mcpServerUrl) {
+        let headers: Record<string, string> | undefined;
+        if (items.mcpHeaders) {
+          try {
+            headers = JSON.parse(items.mcpHeaders as string) as Record<string, string>;
+          } catch {
+            /* ignore */
+          }
+        }
+        config = JSON.stringify({
+          mcpServers: {
+            legacy: {
+              url: items.mcpServerUrl,
+              ...(headers && Object.keys(headers).length > 0 ? { headers } : {})
             }
           }
-          config = JSON.stringify({
-            mcpServers: {
-              legacy: {
-                url: items.mcpServerUrl,
-                ...(headers && Object.keys(headers).length > 0 ? { headers } : {})
-              }
-            }
-          }, null, 2);
-        }
-        mcpServersConfigInput.value = config || getDefaultMcpServersConfig();
-        void renderMcpServersList(items.mcpServersEnabled || {}, mcpServersConfigInput.value);
+        }, null, 2);
       }
-      refreshChatModelSelect(items.lastFetchedModels || [], items.llmModel || "");
+      mcpServersConfigInput.value = config || getDefaultMcpServersConfig();
+      void renderMcpServersList(items.mcpServersEnabled || {}, mcpServersConfigInput.value);
     }
   );
-}
-
-const AUTO_MODEL_LABEL = "Auto";
-
-function refreshChatModelSelect(modelIds: string[], currentModel: string) {
-  if (!chatModelSelect) return;
-  chatModelSelect.innerHTML = "";
-  const auto = document.createElement("option");
-  auto.value = "";
-  auto.textContent = AUTO_MODEL_LABEL;
-  chatModelSelect.appendChild(auto);
-  const list = modelIds.length > 0 ? modelIds : (currentModel ? [currentModel] : []);
-  list.forEach((id) => {
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = id;
-    chatModelSelect.appendChild(opt);
+  chrome.storage.sync.get({ browserAutomationEnabled: false }, (items) => {
+    if (browserAutomationCheckbox) browserAutomationCheckbox.checked = Boolean(items.browserAutomationEnabled);
   });
-  if (currentModel && list.includes(currentModel)) {
-    chatModelSelect.value = currentModel;
-  } else {
-    chatModelSelect.value = "";
-  }
 }
 
-function getEndpointType(): "chat" | "custom" {
-  return (llmEndpointTypeSelect?.value === "custom" ? "custom" : "chat") as "chat" | "custom";
+function refreshConfigSelect(
+  configs: { id: string; name: string }[],
+  activeId: string | null
+) {
+  const id = activeId ?? configs[0]?.id ?? "";
+  for (const sel of [chatModelSelect, llmConfigSelect]) {
+    if (!sel) continue;
+    sel.innerHTML = "";
+    configs.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+    sel.value = id;
+  }
 }
 
 function applyTheme(theme: "light" | "dark" | "system") {
@@ -571,127 +557,41 @@ function applyTheme(theme: "light" | "dark" | "system") {
   }
 }
 
-async function saveLlmConfig() {
-  const temperature = 0.7;
-  const maxTokensRaw = llmMaxTokensInput?.value.trim();
-  const maxTokens = maxTokensRaw ? Math.max(128, Math.min(32768, parseInt(maxTokensRaw, 10) || 2048)) : 2048;
-  const endpointRaw = llmEndpointInput.value.trim();
-  const model = llmModelInput.value.trim();
-  const endpointType = getEndpointType();
-  if (!endpointRaw || !model) {
-    llmStatus.textContent = await translate("errors.llmNotConfigured");
-    llmStatus.className = "status error";
-    return;
-  }
+function getThemeFromToggle(): "light" | "dark" | "system" {
+  const btn = document.querySelector('.theme-toggle-btn[aria-pressed="true"]');
+  const v = btn?.getAttribute("data-theme");
+  if (v === "light" || v === "dark" || v === "system") return v;
+  return "system";
+}
 
-  const endpoint = normalizeEndpoint(endpointRaw, endpointType);
-  if (!endpoint) {
-    llmStatus.textContent = await translate("settings.enterLlmEndpoint");
-    llmStatus.className = "status error";
-    return;
-  }
-
-  llmStatus.textContent = (await translate("settings.checking")) || "Checking connection…";
-  llmStatus.className = "status info";
-
-  const check = await checkLlmConnection(endpoint, model);
-  if (!check.available) {
-    llmStatus.textContent = `\u2716 ${check.error}`;
-    llmStatus.className = "status error";
-    return;
-  }
-
-  chrome.storage.local.set({ llmApiKey: llmApiKeyInput.value });
-  const toSave: Record<string, unknown> = {
-    llmEndpoint: endpointRaw,
-    llmEndpointType: endpointType,
-    llmModel: model,
-    llmTemperature: temperature,
-    llmMaxTokens: maxTokens
-  };
-  const theme = themeSelect?.value;
-  if (theme === "light" || theme === "dark" || theme === "system") toSave.theme = theme;
-  if (mcpServersConfigInput?.value.trim()) toSave.mcpServersConfig = mcpServersConfigInput.value.trim();
-
-  const savedText = await translate("settings.saved");
-  chrome.storage.sync.set(toSave, () => {
-    llmStatus.textContent = savedText || "Saved";
-    llmStatus.className = "status success";
-    setTimeout(() => { llmStatus.textContent = ""; llmStatus.className = "status"; }, 2000);
+function setThemeToggle(theme: "light" | "dark" | "system") {
+  themeToggleBtns().forEach((b) => {
+    b.setAttribute("aria-pressed", b.dataset.theme === theme ? "true" : "false");
   });
 }
 
-async function fetchModels() {
-  if (!llmFetchModelsBtn || !llmModelSelect || !llmEndpointInput) return;
-  const endpointRaw = llmEndpointInput.value.trim();
-  if (!endpointRaw) {
-    llmStatus.textContent = await translate("settings.enterLlmEndpoint");
-    llmStatus.className = "status error";
-    return;
-  }
-  const endpoint = normalizeEndpoint(endpointRaw, getEndpointType());
-  if (!endpoint) {
-    llmStatus.textContent = await translate("settings.enterLlmEndpoint");
-    llmStatus.className = "status error";
-    return;
-  }
-  llmFetchModelsBtn.disabled = true;
-  llmModelSelect.innerHTML = "";
-  llmStatus.textContent = await translate("settings.checking");
-  llmStatus.className = "status info";
-  try {
-    const result = await getLMStudioModelsForEndpoint(endpoint);
-    if ("error" in result) {
-      llmStatus.textContent = result.error;
-      llmStatus.className = "status error";
-      return;
-    }
-    llmStatus.textContent = "";
-    result.models.forEach((id) => {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = id;
-      llmModelSelect.appendChild(opt);
-    });
-    if (result.models.length > 0) {
-      llmModelSelect.style.display = "inline-block";
-      if (!llmModelInput.value && result.models[0]) llmModelInput.value = result.models[0];
-      chrome.storage.sync.set({ lastFetchedModels: result.models }, () => {
-        refreshChatModelSelect(result.models, llmModelInput?.value || result.models[0]);
-      });
-    }
-  } catch (err) {
-    llmStatus.textContent = (err as Error).message || "Failed to fetch models";
-    llmStatus.className = "status error";
-  } finally {
-    llmFetchModelsBtn.disabled = false;
-  }
+const PERSIST_DEBOUNCE_MS = 400;
+let persistTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+function persistLlmSettings(): void {
+  const maxTokensRaw = llmMaxTokensInput?.value.trim();
+  const maxTokens = maxTokensRaw ? Math.max(128, Math.min(32768, parseInt(maxTokensRaw, 10) || 2048)) : 2048;
+  const toSave: Record<string, unknown> = { llmMaxTokens: maxTokens };
+  const theme = getThemeFromToggle();
+  if (theme === "light" || theme === "dark" || theme === "system") toSave.theme = theme;
+  if (mcpServersConfigInput?.value.trim()) toSave.mcpServersConfig = mcpServersConfigInput.value.trim();
+  chrome.storage.sync.set(toSave);
 }
 
-async function checkMcp() {
-  if (!mcpCheckBtn || !mcpStatus || !mcpServersConfigInput) return;
-  const json = mcpServersConfigInput.value.trim();
-  const parsed = parseMcpServersConfigForCheck(json);
-  if ("error" in parsed) {
-    mcpStatus.textContent = `\u2716 ${parsed.error}`;
-    mcpStatus.className = "status error";
-    setTimeout(() => { mcpStatus.textContent = ""; mcpStatus.className = "status"; }, 3000);
-    return;
-  }
-  mcpCheckBtn.disabled = true;
-  mcpStatus.textContent = await translate("settings.checkingMcp");
-  mcpStatus.className = "status info";
-  const result = await checkMcpConnection(parsed.url, { headers: parsed.headers });
-  mcpCheckBtn.disabled = false;
-  if (result.ok) {
-    mcpStatus.textContent = await translate("settings.mcpConnected");
-    mcpStatus.className = "status success";
-  } else {
-    mcpStatus.textContent = `\u2716 ${result.error}`;
-    mcpStatus.className = "status error";
-  }
-  setTimeout(() => { mcpStatus.textContent = ""; mcpStatus.className = "status"; }, 3000);
+function schedulePersist(): void {
+  if (persistTimeoutId) clearTimeout(persistTimeoutId);
+  persistTimeoutId = setTimeout(() => {
+    persistTimeoutId = null;
+    persistLlmSettings();
+  }, PERSIST_DEBOUNCE_MS);
 }
+
+const MCP_ERROR_LOADING = "Error loading";
 
 async function renderMcpServersList(
   enabled: Record<string, boolean>,
@@ -737,7 +637,15 @@ async function renderMcpServersList(
         if ("error" in res) {
           toolsContainer.textContent = res.error;
           toolsContainer.classList.add("mcp-tools-error");
+          if (mcpStatus) {
+            mcpStatus.textContent = MCP_ERROR_LOADING;
+            mcpStatus.className = "status error";
+          }
           return;
+        }
+        if (mcpStatus) {
+          mcpStatus.textContent = "";
+          mcpStatus.className = "status";
         }
         if (res.tools.length === 0) {
           toolsContainer.textContent = noToolsLabel;
@@ -804,6 +712,7 @@ async function updateUI() {
   if (title) title.textContent = await translate("app.title");
   if (subtitle) subtitle.textContent = await translate("chat.subtitleCurrentPage");
   if (tabChat) tabChat.textContent = await translate("chat.tabChat");
+  if (tabSearch) tabSearch.textContent = await translate("search.tabSearch");
   if (tabSettings) tabSettings.textContent = await translate("settings.title");
 
   if (chatInput) chatInput.placeholder = await translate("chat.placeholderCurrentPage");
@@ -814,55 +723,184 @@ async function updateUI() {
     clearChatBtn.setAttribute("aria-label", await translate("chat.clearChat"));
   }
 
-  const llmEndpointTypeLabel = document.querySelector('label:has(#llm-endpoint-type) .label-text');
-  const llmEndpointLabelText = document.querySelector('label:has(#llm-endpoint) .label-text');
-  const llmModelLabelText = document.querySelector('label:has(#llm-model) .label-text');
-  const llmApiKeyLabelText = document.querySelector('label:has(#llm-api-key) .label-text');
-  const themeLabel = document.querySelector('label:has(#theme-select) .label-text');
-
-  if (llmEndpointTypeLabel) llmEndpointTypeLabel.textContent = await translate("settings.endpointType");
-  if (llmEndpointTypeSelect) {
-    const typeOpts = llmEndpointTypeSelect.querySelectorAll("option");
-    if (typeOpts[0]) typeOpts[0].textContent = await translate("settings.endpointTypeChat");
-    if (typeOpts[1]) typeOpts[1].textContent = await translate("settings.endpointTypeCustom");
+  const llmConfigLabel = document.querySelector('label:has(#llm-config-select) .label-text');
+  if (llmConfigLabel) llmConfigLabel.textContent = "LLM";
+  const browserAutomationLabel = document.querySelector('.browser-automation-row .label-text');
+  if (browserAutomationLabel) browserAutomationLabel.textContent = await translate("settings.browserAutomation");
+  const themeBtnLight = document.querySelector('.theme-toggle-btn[data-theme="light"]');
+  const themeBtnDark = document.querySelector('.theme-toggle-btn[data-theme="dark"]');
+  const themeBtnSystem = document.querySelector('.theme-toggle-btn[data-theme="system"]');
+  if (themeBtnLight) {
+    themeBtnLight.setAttribute("aria-label", await translate("settings.themeLight"));
+    themeBtnLight.setAttribute("title", await translate("settings.themeLight"));
   }
-  if (llmEndpointLabelText) llmEndpointLabelText.textContent = await translate("settings.llmEndpoint");
-  if (llmEndpointInput) llmEndpointInput.placeholder = getEndpointType() === "custom" ? (await translate("settings.llmEndpointPlaceholderCustom")) : (await translate("settings.llmEndpointPlaceholder"));
-  if (themeLabel) themeLabel.textContent = await translate("settings.theme");
-  if (themeSelect) {
-    const opts = themeSelect.querySelectorAll("option");
-    opts[0]?.setAttribute("value", "system"); if (opts[0]) opts[0].textContent = await translate("settings.themeSystem");
-    opts[1]?.setAttribute("value", "light"); if (opts[1]) opts[1].textContent = await translate("settings.themeLight");
-    opts[2]?.setAttribute("value", "dark"); if (opts[2]) opts[2].textContent = await translate("settings.themeDark");
+  if (themeBtnDark) {
+    themeBtnDark.setAttribute("aria-label", await translate("settings.themeDark"));
+    themeBtnDark.setAttribute("title", await translate("settings.themeDark"));
+  }
+  if (themeBtnSystem) {
+    themeBtnSystem.setAttribute("aria-label", await translate("settings.themeSystem"));
+    themeBtnSystem.setAttribute("title", await translate("settings.themeSystem"));
   }
 
-  if (llmModelLabelText) llmModelLabelText.textContent = await translate("settings.model");
-  if (llmModelInput) llmModelInput.placeholder = await translate("settings.modelPlaceholder");
-
-  if (llmApiKeyLabelText) llmApiKeyLabelText.textContent = await translate("settings.apiKey");
   const llmMaxTokensLabelText = document.querySelector('label:has(#llm-max-tokens) .label-text');
   if (llmMaxTokensLabelText) llmMaxTokensLabelText.textContent = await translate("settings.maxTokens");
   if (llmMaxTokensInput) llmMaxTokensInput.placeholder = (await translate("settings.maxTokensPlaceholder")) || "2048";
 
-  if (llmSaveButton) llmSaveButton.textContent = await translate("settings.save");
-  if (llmFetchModelsBtn) llmFetchModelsBtn.textContent = await translate("settings.fetchModels");
-
   const mcpConfigLabel = document.querySelector('label:has(#mcp-servers-config) .label-text');
   if (mcpConfigLabel) mcpConfigLabel.textContent = await translate("settings.mcpServersConfig");
   if (mcpServersConfigInput) mcpServersConfigInput.placeholder = await translate("settings.mcpServersConfigPlaceholder");
-  if (mcpCheckBtn) mcpCheckBtn.textContent = await translate("settings.checkMcp");
-
   await renderMessages();
 }
 
-function switchToTab(tab: "chat" | "settings") {
+function switchToTab(tab: "chat" | "search" | "settings") {
   const chatActive = tab === "chat";
+  const searchActive = tab === "search";
+  const settingsActive = tab === "settings";
   chatContainer?.classList.toggle("hidden", !chatActive);
-  settingsPanel?.classList.toggle("hidden", chatActive);
+  searchPanel?.classList.toggle("hidden", !searchActive);
+  settingsPanel?.classList.toggle("hidden", !settingsActive);
   tabChat?.classList.toggle("tab-btn-active", chatActive);
   tabChat?.setAttribute("aria-selected", String(chatActive));
-  tabSettings?.classList.toggle("tab-btn-active", !chatActive);
-  tabSettings?.setAttribute("aria-selected", String(!chatActive));
+  tabSearch?.classList.toggle("tab-btn-active", searchActive);
+  tabSearch?.setAttribute("aria-selected", String(searchActive));
+  tabSettings?.classList.toggle("tab-btn-active", settingsActive);
+  tabSettings?.setAttribute("aria-selected", String(settingsActive));
+  if (searchActive) updateSummarizeButtonState();
+}
+
+async function runSearch(): Promise<void> {
+  if (!searchPagesInput || !searchResults || !searchStatus) return;
+  const query = searchPagesInput.value.trim();
+  if (!query) {
+    searchStatus.textContent = "Enter a search query.";
+    searchStatus.className = "status search-status";
+    return;
+  }
+  searchStatus.textContent = "Searching…";
+  searchStatus.className = "status info search-status";
+  searchResults.innerHTML = "";
+  lastSearchResults = [];
+  try {
+    const pages = await storage.getAllPages();
+    if (pages.length === 0) {
+      searchStatus.textContent = "No saved pages yet. Visit some pages to index them.";
+      searchStatus.className = "status search-status";
+      return;
+    }
+    const results = keywordSearch(query, pages, { limit: 20 });
+    lastSearchResults = rerank(results);
+    if (lastSearchResults.length === 0) {
+      searchStatus.textContent = "No matches.";
+      searchStatus.className = "status search-status";
+      return;
+    }
+    searchStatus.textContent = `${lastSearchResults.length} page(s) found.`;
+    searchStatus.className = "status success search-status";
+    renderSearchResultsList(lastSearchResults);
+  } catch (err) {
+    searchStatus.textContent = "Search failed: " + (err instanceof Error ? err.message : String(err));
+    searchStatus.className = "status error search-status";
+  }
+  updateSummarizeButtonState();
+}
+
+function renderSearchResultsList(results: SearchResult[]): void {
+  if (!searchResults) return;
+  searchResults.innerHTML = "";
+  const snippetLen = 80;
+  for (const { page, score } of results) {
+    const li = document.createElement("li");
+    li.className = "search-result-item";
+    const label = document.createElement("label");
+    label.className = "search-result-label";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "search-result-cb";
+    cb.dataset.pageId = page.id;
+    cb.addEventListener("change", () => updateSummarizeButtonState());
+    const title = document.createElement("span");
+    title.className = "search-result-title";
+    title.textContent = page.title || page.url || page.id;
+    const link = document.createElement("a");
+    link.href = page.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.className = "search-result-link";
+    link.textContent = page.url;
+    const snippet = document.createElement("p");
+    snippet.className = "search-result-snippet";
+    const text = page.contentText?.trim() || "";
+    snippet.textContent = text.length > snippetLen ? text.slice(0, snippetLen) + "…" : text;
+    label.appendChild(cb);
+    label.appendChild(title);
+    li.appendChild(label);
+    li.appendChild(link);
+    li.appendChild(snippet);
+    searchResults.appendChild(li);
+  }
+}
+
+function getSelectedPageIds(): string[] {
+  if (!searchResults) return [];
+  const checkboxes = searchResults.querySelectorAll<HTMLInputElement>(".search-result-cb:checked");
+  return Array.from(checkboxes).map((cb) => cb.dataset.pageId ?? "").filter(Boolean);
+}
+
+function updateSummarizeButtonState(): void {
+  if (summarizeSelectedBtn) {
+    const ids = getSelectedPageIds();
+    summarizeSelectedBtn.disabled = ids.length === 0;
+  }
+}
+
+async function summarizeSelected(): Promise<void> {
+  const ids = getSelectedPageIds();
+  if (ids.length === 0 || !summarizeSelectedBtn || !searchStatus) return;
+  summarizeSelectedBtn.disabled = true;
+  searchStatus.textContent = "Summarizing…";
+  searchStatus.className = "status info search-status";
+  try {
+    const response = await new Promise<{ ok?: boolean; summary?: { text?: string; error?: string }; error?: string }>((resolve) => {
+      chrome.runtime.sendMessage(
+        { type: "SUMMARIZE", payload: { pageIds: ids } },
+        (r: unknown) => {
+          if (chrome.runtime.lastError) {
+            resolve({ error: chrome.runtime.lastError.message ?? "Unknown error" });
+            return;
+          }
+          resolve((r as { ok?: boolean; summary?: { text?: string; error?: string }; error?: string }) ?? {});
+        }
+      );
+    });
+    const errMsg = response.error ?? (response.summary && "error" in response.summary ? response.summary.error : undefined);
+    if (errMsg) {
+      searchStatus.textContent = errMsg;
+      searchStatus.className = "status error search-status";
+      return;
+    }
+    const text = response.summary?.text ?? "";
+    const sources = lastSearchResults
+      .filter((r) => ids.includes(r.page.id))
+      .map((r) => ({ title: r.page.title || r.page.url, url: r.page.url }));
+    const msg: ChatMessage = {
+      role: "assistant",
+      content: text,
+      timestamp: new Date().toISOString(),
+      sources
+    };
+    chatHistory.push(msg);
+    await storage.saveChatMessage(msg);
+    await renderMessages();
+    searchStatus.textContent = "Summary added to chat.";
+    searchStatus.className = "status success search-status";
+    switchToTab("chat");
+  } catch (err) {
+    searchStatus.textContent = "Failed: " + (err instanceof Error ? err.message : String(err));
+    searchStatus.className = "status error search-status";
+  } finally {
+    updateSummarizeButtonState();
+  }
 }
 
 async function clearChat(): Promise<void> {
@@ -884,8 +922,14 @@ async function clearChat(): Promise<void> {
 
 function wireEvents() {
   tabChat?.addEventListener("click", () => switchToTab("chat"));
+  tabSearch?.addEventListener("click", () => switchToTab("search"));
   tabSettings?.addEventListener("click", () => switchToTab("settings"));
   clearChatBtn?.addEventListener("click", () => void clearChat());
+  searchPagesBtn?.addEventListener("click", () => void runSearch());
+  searchPagesInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") void runSearch();
+  });
+  summarizeSelectedBtn?.addEventListener("click", () => void summarizeSelected());
   sendButton.addEventListener("click", () => {
     if (streamPort) {
       try {
@@ -923,20 +967,20 @@ function wireEvents() {
     chatInput.style.height = `${Math.min(chatInput.scrollHeight, 120)}px`;
   });
 
-  llmSaveButton.addEventListener("click", () => void saveLlmConfig());
-  llmFetchModelsBtn?.addEventListener("click", () => void fetchModels());
-  llmEndpointTypeSelect?.addEventListener("change", async () => {
-    if (llmEndpointInput) llmEndpointInput.placeholder = getEndpointType() === "custom" ? (await translate("settings.llmEndpointPlaceholderCustom")) : (await translate("settings.llmEndpointPlaceholder"));
+  browserAutomationCheckbox?.addEventListener("change", () => {
+    chrome.storage.sync.set({ browserAutomationEnabled: browserAutomationCheckbox.checked });
   });
-  themeSelect?.addEventListener("change", () => {
-    const v = themeSelect.value as "light" | "dark" | "system";
+  llmMaxTokensInput?.addEventListener("input", schedulePersist);
+  mcpServersConfigInput?.addEventListener("input", schedulePersist);
+  themeToggle?.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest(".theme-toggle-btn");
+    if (!btn || !(btn instanceof HTMLButtonElement)) return;
+    const v = btn.dataset.theme as "light" | "dark" | "system";
+    if (v !== "light" && v !== "dark" && v !== "system") return;
     applyTheme(v);
+    setThemeToggle(v);
     chrome.storage.sync.set({ theme: v });
   });
-  llmModelSelect?.addEventListener("change", () => {
-    if (llmModelInput && llmModelSelect?.value) llmModelInput.value = llmModelSelect.value;
-  });
-  mcpCheckBtn?.addEventListener("click", () => void checkMcp());
   mcpServersConfigInput?.addEventListener("input", () => {
     chrome.storage.sync.get({ mcpServersEnabled: {} as Record<string, boolean> }, (items) => {
       void renderMcpServersList(items.mcpServersEnabled || {}, mcpServersConfigInput?.value ?? "");
@@ -944,9 +988,14 @@ function wireEvents() {
   });
 
   chatModelSelect?.addEventListener("change", () => {
-    const v = chatModelSelect.value;
-    if (llmModelInput) llmModelInput.value = v || llmModelInput.placeholder;
-    if (v) chrome.storage.sync.set({ llmModel: v });
+    setActiveLlmConfigId(chatModelSelect?.value ?? null);
+  });
+  llmConfigSelect?.addEventListener("change", () => {
+    setActiveLlmConfigId(llmConfigSelect?.value ?? null);
+    if (chatModelSelect && llmConfigSelect) chatModelSelect.value = llmConfigSelect.value;
+  });
+  llmConfigOpenOptionsBtn?.addEventListener("click", () => {
+    void chrome.runtime.openOptionsPage();
   });
 }
 
@@ -960,6 +1009,11 @@ async function loadChatHistory(): Promise<void> {
 }
 
 wireEvents();
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "sync" && (changes.llmConfigs || changes.activeLlmConfigId)) {
+    void getLlmConfigsAndActive().then(({ configs, activeId }) => refreshConfigSelect(configs, activeId));
+  }
+});
 void (async () => {
   await loadChatHistory();
   await updateUI();

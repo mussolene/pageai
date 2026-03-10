@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { build } from "esbuild";
-import { mkdir, cp } from "fs/promises";
+import { mkdir, cp, readFile, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -15,7 +15,12 @@ async function copyStatic() {
   const root = join(__dirname, "..");
   await mkdir(outdir, { recursive: true });
   await mkdir(join(outdir, "icons"), { recursive: true });
-  await cp(join(root, "manifest.json"), join(outdir, "manifest.json"));
+
+  // Единый источник версии: package.json → manifest в dist
+  const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
+  manifest.version = pkg.version;
+  await writeFile(join(outdir, "manifest.json"), JSON.stringify(manifest, null, 2));
   await cp(join(root, "src", "ui", "panel.html"), join(outdir, "panel.html"));
   await cp(join(root, "src", "ui", "panel.css"), join(outdir, "panel.css"));
   await cp(join(root, "src", "ui", "popup.html"), join(outdir, "popup.html"));

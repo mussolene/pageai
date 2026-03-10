@@ -10,6 +10,15 @@ export interface LlmConfig {
   maxTokens?: number;
 }
 
+/** Одна запись конфига LLM в настройках (имя, endpoint, модель и т.д.). API key хранится отдельно в local. */
+export interface LlmConfigEntry {
+  id: string;
+  name: string;
+  endpoint: string;
+  endpointType: "chat" | "custom";
+  model: string;
+}
+
 export interface LlmChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -45,6 +54,32 @@ export type LlmMessageForApi =
 
 const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 
+/** Таймаут по умолчанию для запросов к LLM (чат, саммари). */
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+/** Таймаут для запроса списка моделей. */
+const DEFAULT_MODELS_TIMEOUT_MS = 10_000;
+/** Таймаут для одного хоста при автоопределении. */
+const DETECT_HOST_TIMEOUT_MS = 3_000;
+
+/** Известные хосты для автоопределения (LM Studio, Ollama и т.п. с OpenAI-совместимым /v1/models). */
+const KNOWN_LLM_HOSTS = [
+  "http://localhost:1234",   // LM Studio
+  "http://localhost:11434",   // Ollama
+  "http://127.0.0.1:1234",
+  "http://127.0.0.1:11434"
+];
+
+/** Создаёт AbortSignal с таймаутом и функцию очистки таймера. */
+function abortSignalWithTimeout(ms: number): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, cleanup: () => clearTimeout(t) };
+}
+
+function isAbortError(e: unknown): boolean {
+  return e instanceof Error && (e.name === "AbortError" || e.message?.toLowerCase().includes("abort"));
+}
+
 /** True if the endpoint URL is local (localhost / 127.0.0.1 / [::1]). Used to warn when sending data to external servers. */
 export function isLocalLlmEndpoint(raw: string): boolean {
   const trimmed = raw.trim();
@@ -73,44 +108,126 @@ export function normalizeEndpoint(raw: string, type: "chat" | "custom"): string 
   return base + CHAT_COMPLETIONS_PATH;
 }
 
-// BYOM: конфиг из chrome.storage.sync (endpoint, model); секреты (llmApiKey) из chrome.storage.local
-async function getLlmConfig(): Promise<LlmConfig | null> {
-  const [syncItems, localItems] = await Promise.all([
-    new Promise<Record<string, unknown>>((resolve) => {
-      chrome.storage.sync.get(
-        {
-          llmEndpoint: "http://localhost:1234",
-          llmEndpointType: "chat" as "chat" | "custom",
-          llmModel: "qwen/qwen3-4b-2507",
-          llmTemperature: 0.7,
-          llmMaxTokens: 2048
-        },
-        resolve
+/** Результат автоопределения хоста и типа API. */
+export interface DetectedLlmHost {
+  baseUrl: string;
+  type: "chat";
+  models: string[];
+}
+
+/**
+ * Пробует известные хосты (LM Studio, Ollama) и возвращает первый, где доступен /v1/models.
+ * Тип API всегда "chat" (OpenAI-совместимый).
+ */
+export async function detectLlmHost(): Promise<DetectedLlmHost | { error: string }> {
+  for (const baseUrl of KNOWN_LLM_HOSTS) {
+    try {
+      const { signal, cleanup } = abortSignalWithTimeout(DETECT_HOST_TIMEOUT_MS);
+      const response = await fetch(`${baseUrl}/v1/models`, { signal });
+      cleanup();
+      if (!response.ok) continue;
+      const data = await response.json();
+      const models: string[] = (data.data || []).map((m: { id?: string }) => m.id).filter(Boolean);
+      return { baseUrl, type: "chat", models };
+    } catch {
+      continue;
+    }
+  }
+  return {
+    error: "No LLM server found. Start LM Studio (port 1234) or Ollama (port 11434)."
+  };
+}
+
+const DEFAULT_TEMPERATURE = 0.7;
+const DEFAULT_MAX_TOKENS = 2048;
+
+/** Возвращает список конфигов и активный id для UI (options, panel, popup). */
+export async function getLlmConfigsAndActive(): Promise<{
+  configs: LlmConfigEntry[];
+  activeId: string | null;
+  temperature: number;
+  maxTokens: number;
+}> {
+  const sync = await new Promise<Record<string, unknown>>((resolve) => {
+    chrome.storage.sync.get(
+      {
+        llmConfigs: [] as LlmConfigEntry[],
+        activeLlmConfigId: null as string | null,
+        llmTemperature: DEFAULT_TEMPERATURE,
+        llmMaxTokens: DEFAULT_MAX_TOKENS,
+        llmEndpoint: "",
+        llmEndpointType: "chat" as "chat" | "custom",
+        llmModel: ""
+      },
+      resolve
+    );
+  });
+
+  let configs = (sync.llmConfigs as LlmConfigEntry[]) ?? [];
+  let activeId = sync.activeLlmConfigId as string | null;
+
+  // Миграция: один конфиг из старых полей
+  if (configs.length === 0 && sync.llmEndpoint && sync.llmModel) {
+    const raw = String(sync.llmEndpoint).trim();
+    const type = sync.llmEndpointType === "custom" ? "custom" : "chat";
+    const model = String(sync.llmModel).trim();
+    if (raw && model) {
+      const id = "default-" + Date.now();
+      const entry: LlmConfigEntry = {
+        id,
+        name: "Default",
+        endpoint: raw,
+        endpointType: type as "chat" | "custom",
+        model
+      };
+      configs = [entry];
+      activeId = id;
+      const local = await new Promise<Record<string, unknown>>((r) =>
+        chrome.storage.local.get({ llmApiKey: "", llmApiKeys: {} as Record<string, string> }, r)
       );
-    }),
-    new Promise<Record<string, unknown>>((resolve) => {
-      chrome.storage.local.get({ llmApiKey: "" }, resolve);
-    })
-  ]);
-
-  const raw = syncItems.llmEndpoint as string;
-  const type = syncItems.llmEndpointType === "custom" ? "custom" : "chat";
-  if (!raw || !syncItems.llmModel) {
-    return null;
+      const apiKey = (local.llmApiKey as string) || "";
+      const apiKeys = (local.llmApiKeys as Record<string, string>) ?? {};
+      apiKeys[id] = apiKey;
+      await Promise.all([
+        new Promise<void>((r) => chrome.storage.sync.set({ llmConfigs: configs, activeLlmConfigId: activeId }, r)),
+        new Promise<void>((r) => chrome.storage.local.set({ llmApiKeys: apiKeys }, r))
+      ]);
+    }
   }
 
-  const endpoint = normalizeEndpoint(raw, type);
-  if (!endpoint) {
-    return null;
-  }
+  const temperature = (sync.llmTemperature as number) ?? DEFAULT_TEMPERATURE;
+  const maxTokens = (sync.llmMaxTokens as number) ?? DEFAULT_MAX_TOKENS;
+  return { configs, activeId, temperature, maxTokens };
+}
 
-  const apiKey = (localItems.llmApiKey as string) || undefined;
+/** Установить активный конфиг для чата (по id). */
+export function setActiveLlmConfigId(id: string | null): void {
+  chrome.storage.sync.set({ activeLlmConfigId: id });
+}
+
+// BYOM: конфиг из llmConfigs + activeLlmConfigId (sync) и llmApiKeys (local)
+async function getLlmConfig(): Promise<LlmConfig | null> {
+  const { configs, activeId, temperature, maxTokens } = await getLlmConfigsAndActive();
+  const id = activeId ?? configs[0]?.id;
+  if (!id || configs.length === 0) return null;
+
+  const entry = configs.find((c) => c.id === id);
+  if (!entry) return null;
+
+  const endpoint = normalizeEndpoint(entry.endpoint.trim(), entry.endpointType);
+  if (!endpoint) return null;
+
+  const local = await new Promise<Record<string, unknown>>((resolve) => {
+    chrome.storage.local.get({ llmApiKeys: {} as Record<string, string> }, resolve);
+  });
+  const apiKeys = (local.llmApiKeys as Record<string, string>) ?? {};
+  const apiKey = apiKeys[entry.id];
   return {
     endpoint,
-    model: syncItems.llmModel as string,
-    apiKey: apiKey && apiKey.trim() ? apiKey : undefined,
-    temperature: (syncItems.llmTemperature as number) ?? 0.7,
-    maxTokens: (syncItems.llmMaxTokens as number) ?? 2048
+    model: entry.model,
+    apiKey: apiKey && String(apiKey).trim() ? String(apiKey).trim() : undefined,
+    temperature,
+    maxTokens
   };
 }
 
@@ -162,10 +279,12 @@ export async function summarizePages(
   }
 
   const prompt = buildSummaryPrompt(pages, payload.query);
+  const { signal, cleanup } = abortSignalWithTimeout(DEFAULT_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(config.endpoint, {
       method: "POST",
+      signal,
       headers: {
         "Content-Type": "application/json",
         ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {})
@@ -186,6 +305,7 @@ export async function summarizePages(
         max_tokens: config.maxTokens || 2048
       })
     });
+    cleanup();
 
     if (!response.ok) {
       return { error: `LLM request failed: ${response.status} ${response.statusText}` };
@@ -198,7 +318,12 @@ export async function summarizePages(
 
     return { text };
   } catch (error) {
-    return { error: `LLM request error: ${(error as Error).message}` };
+    cleanup();
+    return {
+      error: isAbortError(error)
+        ? "LLM request timed out. Try again or increase timeout."
+        : `LLM request error: ${(error as Error).message}`
+    };
   }
 }
 
@@ -223,6 +348,11 @@ export async function chatWithLLM(
     }
   }
 
+  const timeout = options.signal
+    ? { signal: options.signal, cleanup: () => {} }
+    : abortSignalWithTimeout(DEFAULT_REQUEST_TIMEOUT_MS);
+  const { signal, cleanup } = timeout;
+
   try {
     const systemPrompt = options.systemPrompt || buildChatSystemPrompt();
     const messagesWithSystem = [
@@ -232,6 +362,7 @@ export async function chatWithLLM(
 
     const response = await fetch(config.endpoint, {
       method: "POST",
+      signal,
       headers: {
         "Content-Type": "application/json",
         ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {})
@@ -244,6 +375,7 @@ export async function chatWithLLM(
         stream: options.stream ?? false
       })
     });
+    cleanup();
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -267,7 +399,12 @@ export async function chatWithLLM(
 
     return { text };
   } catch (error) {
-    return { error: `LLM request error: ${(error as Error).message}` };
+    cleanup();
+    return {
+      error: isAbortError(error)
+        ? "LLM request timed out. Try again."
+        : `LLM request error: ${(error as Error).message}`
+    };
   }
 }
 
@@ -304,15 +441,19 @@ export async function chatWithLLMOneRound(
     body.tool_choice = "auto";
   }
 
+  const { signal, cleanup } = abortSignalWithTimeout(DEFAULT_REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch(config.endpoint, {
       method: "POST",
+      signal,
       headers: {
         "Content-Type": "application/json",
         ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {})
       },
       body: JSON.stringify(body)
     });
+    cleanup();
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -348,7 +489,12 @@ export async function chatWithLLMOneRound(
           : "";
     return { text };
   } catch (error) {
-    return { error: `LLM request error: ${(error as Error).message}` };
+    cleanup();
+    return {
+      error: isAbortError(error)
+        ? "LLM request timed out. Try again."
+        : `LLM request error: ${(error as Error).message}`
+    };
   }
 }
 
@@ -625,14 +771,21 @@ export async function getLMStudioModelsForEndpoint(
     const baseUrl = endpoint.trim().replace(/\/v1\/chat\/completions\/?$/, "");
     if (!baseUrl) return { error: "Invalid endpoint URL" };
 
-    const response = await fetch(`${baseUrl}/v1/models`);
+    const { signal, cleanup } = abortSignalWithTimeout(DEFAULT_MODELS_TIMEOUT_MS);
+    const response = await fetch(`${baseUrl}/v1/models`, { signal });
+    cleanup();
+
     if (!response.ok) return { error: `Failed to fetch models: ${response.status}` };
 
     const data = await response.json();
     const models = (data.data || []).map((m: { id?: string }) => m.id).filter(Boolean);
     return { models };
   } catch (error) {
-    return { error: `Failed to get models: ${(error as Error).message}` };
+    return {
+      error: isAbortError(error)
+        ? "Request timed out. Check that the LLM server is running."
+        : `Failed to get models: ${(error as Error).message}`
+    };
   }
 }
 

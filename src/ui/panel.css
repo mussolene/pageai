@@ -112,6 +112,21 @@ body {
   box-shadow: var(--elevation-1);
 }
 
+.header-with-theme {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.header-with-theme .header-main {
+  min-width: 0;
+}
+
+.header-with-theme .theme-toggle {
+  flex-shrink: 0;
+}
+
 .title {
   margin: 0;
   font-size: 18px;
@@ -696,6 +711,174 @@ button.primary:hover {
   background: var(--accent-soft);
 }
 
+/* Theme toggle: в углу верха, компактный, квадратные кнопки */
+.theme-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.theme-toggle-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.theme-toggle-btn:last-child {
+  border-right: none;
+}
+
+.theme-toggle-btn:hover {
+  color: var(--text);
+}
+
+.theme-toggle-btn[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.theme-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Search panel: saved pages search + summarize selected */
+.search-panel.tab-panel {
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.search-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.search-label .label-text {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.search-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-status {
+  font-size: 13px;
+  min-height: 1.2em;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.search-result-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.search-result-cb {
+  flex-shrink: 0;
+}
+
+.search-result-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.search-result-link {
+  display: block;
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-link:hover {
+  text-decoration: underline;
+}
+
+.search-result-snippet {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.search-actions {
+  margin-top: 8px;
+}
+
+.search-actions .primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.search-actions .primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.search-actions .primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .settings-content {
   display: flex;
   flex-direction: column;
@@ -715,11 +898,146 @@ button.primary:hover {
   border-color: var(--accent);
 }
 
+.llm-config-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.llm-config-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.llm-config-chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.llm-config-chip-name {
+  cursor: pointer;
+}
+
+.llm-config-chip-delete {
+  padding: 0 4px;
+  min-width: 22px;
+  height: 22px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.llm-config-chip-delete:hover {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.llm-config-form {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--subtle-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.llm-config-form .label-text,
+.llm-config-form label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.llm-config-form input,
+.llm-config-form select {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.llm-config-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .settings-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.settings-row.endpoint-row {
+  flex-wrap: nowrap;
+}
+
+.browser-automation-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  cursor: pointer;
+}
+
+.browser-automation-row .toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.browser-automation-row .toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border);
+  transition: background var(--transition);
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.browser-automation-row .toggle::after {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  box-shadow: var(--elevation-1);
+  transition: transform var(--transition);
+}
+
+.browser-automation-row .toggle-input:checked + .toggle {
+  background: var(--accent);
+}
+
+.browser-automation-row .toggle-input:checked + .toggle::after {
+  transform: translateX(20px);
+}
+
+.browser-automation-row .label-text {
+  margin: 0;
+}
+
+.endpoint-row input {
+  flex: 1;
+  min-width: 0;
 }
 
 .settings-content button.secondary {
