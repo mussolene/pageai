@@ -1,6 +1,11 @@
 import type { LlmConfigEntry } from "../llm/client";
 import { normalizeEndpoint, detectLlmHost, getLlmConfigsAndActive } from "../llm/client";
 import {
+  ORCHESTRATOR_SYNC_STORAGE_DEFAULTS,
+  mergeOrchestratorSettings,
+  type OrchestratorCompressMode
+} from "../agent/orchestrator-settings";
+import {
   parseMcpServersList,
   listMcpTools,
   getDefaultMcpServersConfig
@@ -28,6 +33,18 @@ const agentRulesInput = document.getElementById("agent-rules") as HTMLTextAreaEl
 const agentSkillsInput = document.getElementById("agent-skills") as HTMLTextAreaElement | null;
 const rulesStatusEl = document.getElementById("rules-status") as HTMLSpanElement | null;
 const skillsStatusEl = document.getElementById("skills-status") as HTMLSpanElement | null;
+const orchestratorPlanEl = document.getElementById("orchestrator-plan-enabled") as HTMLInputElement | null;
+const orchestratorVerifyEl = document.getElementById("orchestrator-verify-enabled") as HTMLInputElement | null;
+const orchestratorToolRelevanceEl = document.getElementById("orchestrator-tool-relevance-enabled") as HTMLInputElement | null;
+const orchestratorNarrowToolsEl = document.getElementById("orchestrator-narrow-tools-enabled") as HTMLInputElement | null;
+const orchestratorMaxToolIterationsEl = document.getElementById("orchestrator-max-tool-iterations") as HTMLInputElement | null;
+const orchestratorCompressEl = document.getElementById("orchestrator-compress-enabled") as HTMLInputElement | null;
+const orchestratorCompressModeEl = document.getElementById("orchestrator-compress-mode") as HTMLSelectElement | null;
+const orchestratorCompressMinCharsEl = document.getElementById("orchestrator-compress-min-chars") as HTMLInputElement | null;
+const orchestratorCompressMaxInputEl = document.getElementById("orchestrator-compress-max-input") as HTMLInputElement | null;
+const orchestratorCompressTargetEl = document.getElementById("orchestrator-compress-target") as HTMLInputElement | null;
+const agentSearchLexiconEl = document.getElementById("agent-search-lexicon") as HTMLTextAreaElement | null;
+const agentOrchestratorStatusEl = document.getElementById("agent-orchestrator-status") as HTMLSpanElement | null;
 
 let editingConfigId: string | null = null;
 
@@ -350,8 +367,10 @@ async function updateUI() {
   if (navLlm) navLlm.textContent = "LLM";
   if (navBrowser) navBrowser.textContent = "Browser";
   if (navMcp) navMcp.textContent = "MCP";
+  const navAgent = document.getElementById("nav-agent");
   if (navRules) navRules.textContent = "Rules";
   if (navSkills) navSkills.textContent = "Skills";
+  if (navAgent) navAgent.textContent = "Agent";
 }
 
 function loadBrowserAutomation() {
@@ -423,6 +442,25 @@ function wireEvents() {
     chrome.storage.sync.set({ agentSkills: agentSkillsInput?.value ?? "" });
     showSkillsSaved();
   });
+
+  orchestratorPlanEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorVerifyEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorToolRelevanceEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorNarrowToolsEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorMaxToolIterationsEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorCompressEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorCompressModeEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorCompressMinCharsEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorCompressMaxInputEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorCompressTargetEl?.addEventListener("change", persistOrchestratorFromForm);
+  agentSearchLexiconEl?.addEventListener("input", () => {
+    chrome.storage.sync.set({ agentSearchLexicon: agentSearchLexiconEl?.value ?? "" });
+    showOrchestratorSaved();
+  });
+  agentSearchLexiconEl?.addEventListener("blur", () => {
+    chrome.storage.sync.set({ agentSearchLexicon: agentSearchLexiconEl?.value ?? "" });
+    showOrchestratorSaved();
+  });
 }
 
 function loadMcp() {
@@ -467,9 +505,63 @@ function loadRulesAndSkills(): void {
   });
 }
 
+function showOrchestratorSaved(): void {
+  if (agentOrchestratorStatusEl) {
+    agentOrchestratorStatusEl.textContent = "Saved";
+    agentOrchestratorStatusEl.className = "status success";
+    setTimeout(() => {
+      agentOrchestratorStatusEl!.textContent = "";
+      agentOrchestratorStatusEl!.className = "status";
+    }, 1500);
+  }
+}
+
+function readOrchestratorFromForm(): Record<string, unknown> {
+  const mode = (orchestratorCompressModeEl?.value === "truncate" ? "truncate" : "llm") as OrchestratorCompressMode;
+  return {
+    orchestratorPlanEnabled: orchestratorPlanEl?.checked ?? true,
+    orchestratorVerifyEnabled: orchestratorVerifyEl?.checked ?? true,
+    orchestratorToolRelevanceEnabled: orchestratorToolRelevanceEl?.checked ?? true,
+    orchestratorNarrowToolsToRelevance: orchestratorNarrowToolsEl?.checked ?? true,
+    orchestratorMaxToolIterations: Number(orchestratorMaxToolIterationsEl?.value ?? 10),
+    orchestratorCompressEnabled: orchestratorCompressEl?.checked === true,
+    orchestratorCompressMinChars: Number(orchestratorCompressMinCharsEl?.value ?? 8000),
+    orchestratorCompressMaxInputChars: Number(orchestratorCompressMaxInputEl?.value ?? 28000),
+    orchestratorCompressTargetChars: Number(orchestratorCompressTargetEl?.value ?? 4000),
+    orchestratorCompressMode: mode,
+    agentSearchLexicon: agentSearchLexiconEl?.value ?? ""
+  };
+}
+
+function persistOrchestratorFromForm(): void {
+  chrome.storage.sync.set(readOrchestratorFromForm(), () => showOrchestratorSaved());
+}
+
+function loadAgentOrchestrator(): void {
+  chrome.storage.sync.get(ORCHESTRATOR_SYNC_STORAGE_DEFAULTS, (items) => {
+    const s = mergeOrchestratorSettings(items as Record<string, unknown>);
+    if (orchestratorPlanEl) orchestratorPlanEl.checked = s.orchestratorPlanEnabled;
+    if (orchestratorVerifyEl) orchestratorVerifyEl.checked = s.orchestratorVerifyEnabled;
+    if (orchestratorToolRelevanceEl) orchestratorToolRelevanceEl.checked = s.orchestratorToolRelevanceEnabled;
+    if (orchestratorNarrowToolsEl) orchestratorNarrowToolsEl.checked = s.orchestratorNarrowToolsToRelevance;
+    if (orchestratorMaxToolIterationsEl) {
+      orchestratorMaxToolIterationsEl.value = String(s.orchestratorMaxToolIterations);
+    }
+    if (orchestratorCompressEl) orchestratorCompressEl.checked = s.orchestratorCompressEnabled;
+    if (orchestratorCompressModeEl) {
+      orchestratorCompressModeEl.value = s.orchestratorCompressMode === "truncate" ? "truncate" : "llm";
+    }
+    if (orchestratorCompressMinCharsEl) orchestratorCompressMinCharsEl.value = String(s.orchestratorCompressMinChars);
+    if (orchestratorCompressMaxInputEl) orchestratorCompressMaxInputEl.value = String(s.orchestratorCompressMaxInputChars);
+    if (orchestratorCompressTargetEl) orchestratorCompressTargetEl.value = String(s.orchestratorCompressTargetChars);
+    if (agentSearchLexiconEl) agentSearchLexiconEl.value = s.agentSearchLexicon;
+  });
+}
+
 wireEvents();
 loadLlmConfigs();
 loadMcp();
 loadBrowserAutomation();
 loadRulesAndSkills();
+loadAgentOrchestrator();
 void updateUI();

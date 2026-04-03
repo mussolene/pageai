@@ -52,6 +52,11 @@ let streamingAssistantIndex: number | null = null;
 let streamingThinkingEl: HTMLDivElement | null = null;
 /** Элемент ответа после блока размышлений (стриминг). */
 let streamingAnswerEl: HTMLDivElement | null = null;
+/** Контейнер для шагов reasoning во время стрима — дополняется без полного renderMessages. */
+let streamingReasoningAnchorEl: HTMLDivElement | null = null;
+/** Временные строки «инструмент выполняется» до прихода reasoning_step (по tool_call id). */
+const pendingToolExecById = new Map<string, HTMLElement>();
+
 /** Буфер стрима для парсинга think-блока (текущий раунд). */
 let streamingBuffer = "";
 /** Накопленные шаги рассуждения (размышления + вызовы MCP) за все раунды стрима. */
@@ -80,6 +85,18 @@ function parseThinkBuffer(buf: string): { thinking?: string; answer?: string } {
   const thinking = thinkOpen === -1 ? "" : buf.slice(thinkOpen + 7, thinkClose);
   const answer = buf.slice(thinkClose + 8);
   return { thinking, answer };
+}
+
+/**
+ * Текст стрима до вызова инструментов сбрасывается вместе с streamingBuffer.
+ * Возвращает шаг для показа в anchor (и для истории), если он не дублирует thinking из incoming.
+ */
+function takePreservedStreamPreamble(incoming: ReasoningStep[]): ReasoningStep | null {
+  const raw = streamingBuffer.trim();
+  if (raw === "") return null;
+  const firstThinking = incoming.find((s) => s.type === "thinking");
+  if (firstThinking?.text != null && firstThinking.text.trim() === raw) return null;
+  return { type: "thinking", text: raw };
 }
 
 /** Форматирует аргументы вызова: для каждого параметра «Имя:\nЗначение» с новой строки. */
@@ -145,6 +162,12 @@ async function buildReasoningStepElement(step: ReasoningStep): Promise<HTMLEleme
   return wrap;
 }
 
+function setToolsExecutingShimmer(active: boolean): void {
+  if (!messagesContainer) return;
+  messagesContainer.classList.toggle("tools-executing-shimmer", active);
+  messagesContainer.toggleAttribute("aria-busy", active);
+}
+
 function addMessageToChat(message: ChatMessage, options?: { skipSave?: boolean }) {
   chatHistory.push(message);
   if (!options?.skipSave) {
@@ -191,13 +214,17 @@ async function renderMessages() {
     inner.className = "message-inner";
 
     if (msg.role === "assistant" && isStreamingThis) {
+      const anchor = document.createElement("div");
+      anchor.className = "streaming-reasoning-anchor";
+      streamingReasoningAnchorEl = anchor;
       for (const step of streamingReasoningSteps) {
         const stepDiv = document.createElement("div");
         stepDiv.className = "message reasoning-step";
         const stepEl = await buildReasoningStepElement(step);
         stepDiv.appendChild(stepEl);
-        messagesContainer.appendChild(stepDiv);
+        anchor.appendChild(stepDiv);
       }
+      inner.appendChild(anchor);
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
       const parsed = parseThinkBuffer(streamingBuffer);
@@ -220,7 +247,7 @@ async function renderMessages() {
       const answerContent = document.createElement("div");
       answerContent.className = "message-answer";
       if (!hasAnswer) answerContent.classList.add("message-answer-empty");
-      if (hasAnswer) answerContent.textContent = parsed.answer ?? "";
+      if (hasAnswer) renderMarkdown(answerContent, parsed.answer ?? "");
       bubble.appendChild(answerContent);
       inner.appendChild(bubble);
       streamingAnswerEl = answerContent;
@@ -323,6 +350,7 @@ async function renderMessages() {
   if (streamingAssistantIndex === null) {
     streamingThinkingEl = null;
     streamingAnswerEl = null;
+    streamingReasoningAnchorEl = null;
   }
 
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -357,11 +385,99 @@ async function handleSendMessage() {
   }, 15_000);
   const clearPing = () => clearInterval(pingIntervalId);
 
-  port.onMessage.addListener((m: { type: string; text?: string; error?: string; message?: ChatMessage; steps?: ReasoningStep[] }) => {
+  port.onMessage.addListener(
+    (m: {
+      type: string;
+      text?: string;
+      error?: string;
+      message?: ChatMessage;
+      steps?: ReasoningStep[];
+      phase?: string;
+      toolCallId?: string;
+      name?: string;
+    }) => {
+    if (m.type === "agent_phase" && m.phase === "tools") {
+      return;
+    }
+    if (m.type === "tool_exec" && m.phase === "start" && m.toolCallId && m.name) {
+      void (async () => {
+        const toolCallLabel = await translate("chat.toolCall");
+        if (streamingAssistantIndex === null) {
+          chatHistory.push({
+            role: "assistant",
+            content: "",
+            timestamp: new Date().toISOString()
+          });
+          streamingAssistantIndex = chatHistory.length - 1;
+          streamingReasoningAnchorEl = null;
+          await renderMessages();
+        }
+        if (!streamingReasoningAnchorEl) return;
+        const wrap = document.createElement("div");
+        wrap.className = "message reasoning-step tool-exec-pending";
+        wrap.dataset.toolCallId = m.toolCallId;
+        const details = document.createElement("details");
+        details.className = "thinking-block tool-call-block tool-exec-running";
+        details.open = true;
+        const summary = document.createElement("summary");
+        summary.textContent = `${toolCallLabel}: ${m.name}`;
+        const inner = document.createElement("div");
+        inner.className = "thinking-content tool-exec-status";
+        inner.setAttribute("aria-busy", "true");
+        details.appendChild(summary);
+        details.appendChild(inner);
+        wrap.appendChild(details);
+        streamingReasoningAnchorEl.appendChild(wrap);
+        pendingToolExecById.set(m.toolCallId, wrap);
+        if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      })();
+      return;
+    }
+    if (m.type === "tool_exec" && m.phase === "end" && m.toolCallId) {
+      const row = pendingToolExecById.get(m.toolCallId);
+      if (row) {
+        row.classList.remove("tool-exec-pending");
+        row.querySelector(".tool-exec-running")?.classList.remove("tool-exec-running");
+        row.querySelector(".tool-exec-status")?.removeAttribute("aria-busy");
+        pendingToolExecById.delete(m.toolCallId);
+      }
+      return;
+    }
     if (m.type === "reasoning_step" && Array.isArray(m.steps)) {
-      streamingReasoningSteps.push(...m.steps);
+      const incoming = m.steps;
+      const preamble = takePreservedStreamPreamble(incoming);
+      if (preamble) streamingReasoningSteps.push(preamble);
+      streamingReasoningSteps.push(...incoming);
       streamingBuffer = "";
-      void renderMessages();
+      setToolsExecutingShimmer(false);
+      void (async () => {
+        if (streamingAssistantIndex === null) {
+          chatHistory.push({
+            role: "assistant",
+            content: "",
+            timestamp: new Date().toISOString()
+          });
+          streamingAssistantIndex = chatHistory.length - 1;
+          streamingReasoningAnchorEl = null;
+          await renderMessages();
+          return;
+        }
+        if (streamingReasoningAnchorEl) {
+          streamingReasoningAnchorEl.querySelectorAll(".tool-exec-pending").forEach((el) => el.remove());
+          pendingToolExecById.clear();
+          const stepsToRender = preamble ? [preamble, ...incoming] : incoming;
+          for (const step of stepsToRender) {
+            const stepDiv = document.createElement("div");
+            stepDiv.className = "message reasoning-step";
+            const stepEl = await buildReasoningStepElement(step);
+            stepDiv.appendChild(stepEl);
+            streamingReasoningAnchorEl.appendChild(stepDiv);
+          }
+          if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          return;
+        }
+        await renderMessages();
+      })();
       return;
     }
     if (m.type === "chunk" && typeof m.text === "string") {
@@ -375,8 +491,10 @@ async function handleSendMessage() {
           content: "",
           timestamp: new Date().toISOString()
         };
-        streamingAssistantIndex = chatHistory.length;
-        addMessageToChat(placeholder, { skipSave: true });
+        chatHistory.push(placeholder);
+        streamingAssistantIndex = chatHistory.length - 1;
+        streamingReasoningAnchorEl = null;
+        void renderMessages();
       }
       if (streamingThinkingEl) {
         const thinkingText = parsed.thinking ?? "";
@@ -391,12 +509,13 @@ async function handleSendMessage() {
       if (streamingAnswerEl && parsed.answer != null) {
         if (parsed.answer.length > 0) {
           streamingAnswerEl.classList.remove("message-answer-empty");
-          if (streamingAnswerEl.textContent !== parsed.answer) streamingAnswerEl.textContent = parsed.answer;
+          renderMarkdown(streamingAnswerEl, parsed.answer);
         }
       }
       if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } else if (m.type === "done" && m.message) {
       clearPing();
+      setToolsExecutingShimmer(false);
       if (streamingAssistantIndex !== null) {
         chatHistory[streamingAssistantIndex] = m.message;
       } else {
@@ -407,8 +526,10 @@ async function handleSendMessage() {
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
+      streamingReasoningAnchorEl = null;
       streamPort = null;
       isSending = false;
+      pendingToolExecById.clear();
       void updatePlayStopButton(false);
       try {
         void storage.saveChatMessage(m.message).catch(() => {});
@@ -418,6 +539,8 @@ async function handleSendMessage() {
       void renderMessages();
     } else if (m.type === "error") {
       clearPing();
+      setToolsExecutingShimmer(false);
+      pendingToolExecById.clear();
       const errText = m.error ?? "Unknown error";
       const errMessage: ChatMessage = {
         role: "assistant",
@@ -432,6 +555,7 @@ async function handleSendMessage() {
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
+      streamingReasoningAnchorEl = null;
       streamingBuffer = "";
       streamingReasoningSteps = [];
       streamPort = null;
@@ -443,11 +567,14 @@ async function handleSendMessage() {
 
   port.onDisconnect.addListener(() => {
     clearPing();
+    setToolsExecutingShimmer(false);
+    pendingToolExecById.clear();
     if (streamingAssistantIndex !== null) {
       chatHistory.splice(streamingAssistantIndex, 1);
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
+      streamingReasoningAnchorEl = null;
       streamingBuffer = "";
       streamingReasoningSteps = [];
       void renderMessages();
@@ -464,6 +591,7 @@ async function handleSendMessage() {
     });
   } catch (err) {
     clearPing();
+    setToolsExecutingShimmer(false);
     const errMessage: ChatMessage = {
       role: "assistant",
       content: `Error: ${(err as Error).message}`,
@@ -477,6 +605,7 @@ async function handleSendMessage() {
     streamingAssistantIndex = null;
     streamingThinkingEl = null;
     streamingAnswerEl = null;
+    streamingReasoningAnchorEl = null;
     streamingBuffer = "";
     streamingReasoningSteps = [];
     streamPort = null;
@@ -926,9 +1055,11 @@ async function clearChat(): Promise<void> {
     streamPort.disconnect();
     streamPort = null;
   }
+  setToolsExecutingShimmer(false);
   streamingAssistantIndex = null;
   streamingThinkingEl = null;
   streamingAnswerEl = null;
+  streamingReasoningAnchorEl = null;
   streamingBuffer = "";
   streamingReasoningSteps = [];
   isSending = false;
@@ -960,9 +1091,11 @@ function wireEvents() {
       if (streamingAssistantIndex !== null) {
         chatHistory.splice(streamingAssistantIndex, 1);
       }
+      setToolsExecutingShimmer(false);
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
+      streamingReasoningAnchorEl = null;
       streamingBuffer = "";
       streamingReasoningSteps = [];
       isSending = false;

@@ -1,8 +1,42 @@
 import { MessageFromContent, MessageFromPanel, ChatMessage, Page, type ReasoningStep } from "../types/messages";
 import { Storage } from "../storage/indexdb";
-import { summarizePages, chatWithLLM, chatWithLLMStream, chatWithLLMStreamWithTools, chatWithLLMOneRound, type LlmMessageForApi } from "../llm/client";
+import {
+  summarizePages,
+  chatWithLLM,
+  chatWithLLMStream,
+  chatWithLLMStreamWithTools,
+  chatWithLLMOneRound,
+  chatWithLLMSubtask,
+  type LlmMessageForApi
+} from "../llm/client";
 import { buildSummaryPrompt } from "../llm/prompts";
-import { getEnabledMcpToolsWithMap, type OpenAITool, type McpToolsLoadResult } from "../mcp/agent-tools";
+import {
+  getEnabledMcpToolsWithMap,
+  type OpenAITool,
+  type McpToolsLoadResult,
+  type ToolServerBinding
+} from "../mcp/agent-tools";
+import {
+  orchestrateStreamingAgent,
+  orchestrateSyncAgent,
+  type OrchestratorSubtaskHooks,
+  type ToolCallSpec,
+  type ToolExecutionResult
+} from "../agent/orchestrator";
+import {
+  appendStandardOrchestratorBlock,
+  appendSearchLexiconBlock,
+  SUBTASK_PLAN_SYSTEM,
+  SUBTASK_TOOL_RELEVANCE_SYSTEM,
+  SUBTASK_VERIFY_SYSTEM
+} from "../agent/standards";
+import { buildEnrichedToolCatalogMarkdown, buildToolCatalogMarkdown } from "../agent/tool-catalog";
+import {
+  ORCHESTRATOR_SYNC_STORAGE_DEFAULTS,
+  mergeOrchestratorSettings,
+  type OrchestratorSyncSettings
+} from "../agent/orchestrator-settings";
+import { createToolContentFinalizer } from "../agent/context-compress";
 import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
 
@@ -165,8 +199,6 @@ function tryPortPost(port: chrome.runtime.Port, msg: object): boolean {
   }
 }
 
-const MAX_AGENT_TOOL_ITERATIONS = 5;
-
 /** Базовый системный промпт для чата (без инструментов). */
 const BASE_CHAT_SYSTEM_PROMPT =
   "You are a helpful assistant. Answer the user's question concisely.";
@@ -268,8 +300,9 @@ async function loadAgentToolsAndPrompt(): Promise<{
   mcpLoaded: McpToolsLoadResult;
   browserTools: OpenAITool[];
   systemPrompt: string;
+  orchestrator: OrchestratorSyncSettings;
 }> {
-  const [settings, mcpLoadedRaw, basePrompt] = await Promise.all([
+  const [settings, mcpLoadedRaw, basePrompt, orchestratorStored] = await Promise.all([
     new Promise<{ browserAutomationEnabled: boolean }>((resolve) => {
       chrome.storage.sync.get({ browserAutomationEnabled: false }, (items) => {
         resolve({
@@ -278,7 +311,12 @@ async function loadAgentToolsAndPrompt(): Promise<{
       });
     }),
     getEnabledMcpToolsWithMap(),
-    buildBaseSystemPromptWithAgentMeta()
+    buildBaseSystemPromptWithAgentMeta(),
+    new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.sync.get(ORCHESTRATOR_SYNC_STORAGE_DEFAULTS, (items) => {
+        resolve(items as Record<string, unknown>);
+      });
+    })
   ]);
 
   const mcpLoaded: McpToolsLoadResult =
@@ -288,71 +326,70 @@ async function loadAgentToolsAndPrompt(): Promise<{
   const browserTools = getBrowserTools({
     browserAutomationEnabled: settings.browserAutomationEnabled
   });
-  const systemPrompt = buildSystemPromptWithToolStatus(mcpLoaded, browserTools, basePrompt);
-  return { mcpLoaded, browserTools, systemPrompt };
+  const orchestrator = mergeOrchestratorSettings(orchestratorStored);
+  const pipelineBlock = appendStandardOrchestratorBlock(
+    buildSystemPromptWithToolStatus(mcpLoaded, browserTools, basePrompt)
+  );
+  const systemPrompt = appendSearchLexiconBlock(pipelineBlock, orchestrator.agentSearchLexicon);
+  return { mcpLoaded, browserTools, systemPrompt, orchestrator };
 }
 
-/** Результат одного вызова инструмента для отображения в цепочке рассуждений. */
-export interface ToolCallResult {
-  name: string;
-  serverName?: string;
-  args: string;
-  result: string;
+/** План, релевантность tools, verify — отдельные короткие вызовы LLM без tools. */
+function createDefaultOrchestratorSubtasks(
+  orchestrator: OrchestratorSyncSettings,
+  signal: AbortSignal | undefined,
+  toolCatalog: string
+): OrchestratorSubtaskHooks {
+  const cat = toolCatalog.trim();
+  return {
+    enablePlan: orchestrator.orchestratorPlanEnabled,
+    enableVerify: orchestrator.orchestratorVerifyEnabled,
+    enableToolRelevance: orchestrator.orchestratorToolRelevanceEnabled && cat.length > 0,
+    runPlanSubtask: (userMessage: string) =>
+      chatWithLLMSubtask(userMessage, { systemPrompt: SUBTASK_PLAN_SYSTEM, signal }),
+    runToolRelevanceSubtask:
+      cat.length > 0
+        ? (userMessage: string, catalog: string) =>
+            chatWithLLMSubtask(
+              `User request:\n${userMessage}\n\nAvailable tools:\n${catalog}`,
+              { systemPrompt: SUBTASK_TOOL_RELEVANCE_SYSTEM, maxTokens: 512, temperature: 0.25, signal }
+            )
+        : undefined,
+    runVerifySubtask: ({ userGoal, toolResultsSummary }) =>
+      chatWithLLMSubtask(
+        `User request:\n${userGoal}\n\nTool outputs (summary):\n${toolResultsSummary}`,
+        { systemPrompt: SUBTASK_VERIFY_SYSTEM, maxTokens: 256, temperature: 0.2, signal }
+      )
+  };
+}
+
+/** Результат одного вызова инструмента (реэкспорт для совместимости). */
+export type ToolCallResult = ToolExecutionResult;
+
+async function appendFinalizedToolMessage(
+  finalizeToolContent: (toolName: string, raw: string) => Promise<string>,
+  tc: ToolCallSpec,
+  raw: string,
+  messages: LlmMessageForApi[],
+  results: ToolExecutionResult[],
+  resultMeta: { name: string; serverName?: string; args: string }
+): Promise<string> {
+  const content = await finalizeToolContent(tc.name, raw);
+  messages.push({ role: "tool", tool_call_id: tc.id, content });
+  results.push({ ...resultMeta, result: content });
+  return content;
 }
 
 /**
- * Парсит из текста ответа модели вызовы в XML-подобном формате
- * (<function=name> <parameter=key>value</parameter> ... </function>)
- * и возвращает массив tool_calls для выполнения.
- */
-function parseXmlStyleToolCalls(
-  text: string
-): Array<{ id: string; name: string; arguments: string }> {
-  const out: Array<{ id: string; name: string; arguments: string }> = [];
-  const seenKeys = new Set<string>();
-  const funcRegex = /<function=(\w+)>([\s\S]*?)<\/function>/gi;
-  let i = 0;
-  let m: RegExpExecArray | null;
-  while ((m = funcRegex.exec(text)) !== null) {
-    const name = m[1].toLowerCase();
-    if (
-      name !== "page_read" &&
-      name !== "page_click" &&
-      name !== "page_fill" &&
-      name !== "page_navigate" &&
-      name !== "web_search"
-    )
-      continue;
-    const inner = m[2];
-    const args: Record<string, string> = {};
-    const paramRegex = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/gi;
-    let pm: RegExpExecArray | null;
-    while ((pm = paramRegex.exec(inner)) !== null) {
-      args[pm[1].toLowerCase()] = pm[2].trim();
-    }
-    if (name !== "page_read" && Object.keys(args).length === 0) continue;
-    const argsStr = JSON.stringify(args);
-    const key = `${name}:${argsStr}`;
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
-    out.push({
-      id: `xml-${i++}`,
-      name,
-      arguments: argsStr
-    });
-  }
-  return out;
-}
-
-/**
- * Выполнить один раунд вызовов MCP по tool_calls и добавить сообщения в массив.
- * Возвращает список { name, args, result } для отображения в UI.
+ * Выполнить один раунд вызовов инструментов и дописать сообщения в историю для следующего раунда LLM.
  */
 async function executeToolCallsAndAppendMessages(
-  toolCalls: Array<{ id: string; name: string; arguments: string }>,
-  toolToServer: Map<string, { serverUrl: string; headers?: Record<string, string>; serverName: string }>,
-  messages: LlmMessageForApi[]
-): Promise<ToolCallResult[]> {
+  toolCalls: ToolCallSpec[],
+  toolToServer: Map<string, ToolServerBinding>,
+  messages: LlmMessageForApi[],
+  finalizeToolContent: (toolName: string, raw: string) => Promise<string> = async (_, r) => r,
+  hooks?: { onToolStart?: (tc: ToolCallSpec) => void; onToolEnd?: (tc: ToolCallSpec) => void }
+): Promise<ToolExecutionResult[]> {
   const assistantToolCalls = toolCalls.map((tc) => ({
     id: tc.id,
     type: "function" as const,
@@ -363,26 +400,33 @@ async function executeToolCallsAndAppendMessages(
     content: null,
     tool_calls: assistantToolCalls
   });
-  const results: ToolCallResult[] = [];
+  const results: ToolExecutionResult[] = [];
   /** Повторные одинаковые page_click/page_fill не выполняем дважды — подставляем результат первого. */
   const pageToolResultByKey = new Map<string, string>();
   for (const tc of toolCalls) {
-    const argsStr = tc.arguments?.trim() ?? "";
-    if (tc.name === "mcp_diagnose") {
-      const content = await runMcpDiagnose();
-      messages.push({ role: "tool", tool_call_id: tc.id, content });
-      results.push({ name: tc.name, args: argsStr, result: content });
-      continue;
-    }
-    if (tc.name === "page_read") {
+    hooks?.onToolStart?.(tc);
+    try {
+      const argsStr = tc.arguments?.trim() ?? "";
+      if (tc.name === "mcp_diagnose") {
+        const raw = await runMcpDiagnose();
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          args: argsStr
+        });
+        continue;
+      }
+      if (tc.name === "page_read") {
       const tabs = await new Promise<chrome.tabs.Tab[]>((r) =>
         chrome.tabs.query({ active: true, currentWindow: true }, r)
       );
       const tabId = tabs[0]?.id;
       if (tabId == null) {
-        const content = "No active tab. Open the page you want to read, then try again.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        const raw = "No active tab. Open the page you want to read, then try again.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "page",
+          args: argsStr
+        });
         continue;
       }
       let mode: string | undefined;
@@ -397,39 +441,54 @@ async function executeToolCallsAndAppendMessages(
       try {
         const pageResponse = await getCurrentPageWithRetry(tabId);
         if (!pageResponse.ok || !pageResponse.page) {
-          const content =
+          const raw =
             pageResponse.error ||
             "Could not read this page. Wait for it to load fully and try again.";
-          messages.push({ role: "tool", tool_call_id: tc.id, content });
-          results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+          await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+            name: tc.name,
+            serverName: "page",
+            args: argsStr
+          });
           continue;
         }
         const page = pageResponse.page;
         if ((mode ?? "summary") === "full") {
-          const content = `Title: ${page.title}\nURL: ${page.url}\n\n${page.contentText ?? ""}`;
-          messages.push({ role: "tool", tool_call_id: tc.id, content });
-          results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+          const raw = `Title: ${page.title}\nURL: ${page.url}\n\n${page.contentText ?? ""}`;
+          await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+            name: tc.name,
+            serverName: "page",
+            args: argsStr
+          });
         } else {
           const summary = await summarizePages([page], {
             pageIds: [page.id],
             query: "Кратко перескажи содержимое этой страницы."
           });
           if ("error" in summary) {
-            const content = summary.error ?? "Failed to summarize page.";
-            messages.push({ role: "tool", tool_call_id: tc.id, content });
-            results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+            const raw = summary.error ?? "Failed to summarize page.";
+            await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+              name: tc.name,
+              serverName: "page",
+              args: argsStr
+            });
           } else {
-            const content = summary.text ?? "No summary produced for this page.";
-            messages.push({ role: "tool", tool_call_id: tc.id, content });
-            results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+            const raw = summary.text ?? "No summary produced for this page.";
+            await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+              name: tc.name,
+              serverName: "page",
+              args: argsStr
+            });
           }
         }
       } catch (err) {
-        const content =
+        const raw =
           (err instanceof Error ? err.message : String(err)) ||
           "Failed to read current page.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "page",
+          args: argsStr
+        });
       }
       continue;
     }
@@ -451,9 +510,12 @@ async function executeToolCallsAndAppendMessages(
       );
       const tabId = tabs[0]?.id;
       if (tabId == null) {
-        const content = "No active tab. Open the page where you want to click, then try again.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        const raw = "No active tab. Open the page where you want to click, then try again.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "page",
+          args: argsStr
+        });
         continue;
       }
       const response = await new Promise<{ ok?: boolean; error?: string; message?: string }>((resolve) => {
@@ -469,10 +531,16 @@ async function executeToolCallsAndAppendMessages(
           }
         );
       });
-      const content = response.ok ? (response.message ?? "Clicked") : (response.error ?? "Failed");
+      const raw = response.ok ? (response.message ?? "Clicked") : (response.error ?? "Failed");
+      const content = await appendFinalizedToolMessage(
+        finalizeToolContent,
+        tc,
+        raw,
+        messages,
+        results,
+        { name: tc.name, serverName: "page", args: argsStr }
+      );
       pageToolResultByKey.set(key, content);
-      messages.push({ role: "tool", tool_call_id: tc.id, content });
-      results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
       continue;
     }
     if (tc.name === "page_fill") {
@@ -493,9 +561,12 @@ async function executeToolCallsAndAppendMessages(
       );
       const tabId = tabs[0]?.id;
       if (tabId == null) {
-        const content = "No active tab. Open the page where you want to fill the field, then try again.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        const raw = "No active tab. Open the page where you want to fill the field, then try again.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "page",
+          args: argsStr
+        });
         continue;
       }
       const response = await new Promise<{ ok?: boolean; error?: string; message?: string }>((resolve) => {
@@ -514,10 +585,16 @@ async function executeToolCallsAndAppendMessages(
           }
         );
       });
-      const content = response.ok ? (response.message ?? "Filled") : (response.error ?? "Failed");
+      const raw = response.ok ? (response.message ?? "Filled") : (response.error ?? "Failed");
+      const content = await appendFinalizedToolMessage(
+        finalizeToolContent,
+        tc,
+        raw,
+        messages,
+        results,
+        { name: tc.name, serverName: "page", args: argsStr }
+      );
       pageToolResultByKey.set(key, content);
-      messages.push({ role: "tool", tool_call_id: tc.id, content });
-      results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
       continue;
     }
     if (tc.name === "page_navigate") {
@@ -529,9 +606,12 @@ async function executeToolCallsAndAppendMessages(
       }
       const url = (args.url ?? "").trim();
       if (!url) {
-        const content = "Missing url for page_navigate.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        const raw = "Missing url for page_navigate.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "page",
+          args: argsStr
+        });
         continue;
       }
       const tabs = await new Promise<chrome.tabs.Tab[]>((r) =>
@@ -539,9 +619,12 @@ async function executeToolCallsAndAppendMessages(
       );
       const tabId = tabs[0]?.id;
       if (tabId == null) {
-        const content = "No active tab. Open a tab where you want to navigate and try again.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        const raw = "No active tab. Open a tab where you want to navigate and try again.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "page",
+          args: argsStr
+        });
         continue;
       }
       const response = await new Promise<{ ok?: boolean; error?: string; message?: string }>(
@@ -564,9 +647,12 @@ async function executeToolCallsAndAppendMessages(
           );
         }
       );
-      const content = response.ok ? (response.message ?? "Navigated") : (response.error ?? "Failed");
-      messages.push({ role: "tool", tool_call_id: tc.id, content });
-      results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+      const raw = response.ok ? (response.message ?? "Navigated") : (response.error ?? "Failed");
+      await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+        name: tc.name,
+        serverName: "page",
+        args: argsStr
+      });
       continue;
     }
     if (tc.name === "web_search") {
@@ -578,9 +664,12 @@ async function executeToolCallsAndAppendMessages(
       }
       const query = (args.query ?? "").trim();
       if (!query) {
-        const content = "Missing search query.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "web", args: argsStr, result: content });
+        const raw = "Missing search query.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "web",
+          args: argsStr
+        });
         continue;
       }
       const engineKey = (args.engine ?? "duckduckgo").toLowerCase();
@@ -588,21 +677,29 @@ async function executeToolCallsAndAppendMessages(
       const url = buildUrl(query);
       try {
         await chrome.tabs.create({ url });
-        const content = `Opened search in new tab (${engineKey}).`;
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "web", args: argsStr, result: content });
+        const raw = `Opened search in new tab (${engineKey}).`;
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "web",
+          args: argsStr
+        });
       } catch (err) {
-        const content = (err instanceof Error ? err.message : String(err)) || "Failed to open tab.";
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-        results.push({ name: tc.name, serverName: "web", args: argsStr, result: content });
+        const raw = (err instanceof Error ? err.message : String(err)) || "Failed to open tab.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "web",
+          args: argsStr
+        });
       }
       continue;
     }
     const binding = toolToServer.get(tc.name);
     if (!binding) {
-      const content = `Error: unknown tool "${tc.name}"`;
-      messages.push({ role: "tool", tool_call_id: tc.id, content });
-      results.push({ name: tc.name, args: argsStr, result: content });
+      const raw = `Error: unknown tool "${tc.name}"`;
+      await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+        name: tc.name,
+        args: argsStr
+      });
       continue;
     }
     let args: Record<string, unknown> = {};
@@ -617,14 +714,15 @@ async function executeToolCallsAndAppendMessages(
       args,
       { headers: binding.headers }
     );
-    const content = "error" in callResult ? callResult.error : callResult.text;
-    messages.push({ role: "tool", tool_call_id: tc.id, content });
-    results.push({
+    const raw = "error" in callResult ? callResult.error : callResult.text;
+    await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
       name: tc.name,
       serverName: binding.serverName,
-      args: argsStr,
-      result: content
+      args: argsStr
     });
+    } finally {
+      hooks?.onToolEnd?.(tc);
+    }
   }
   return results;
 }
@@ -639,11 +737,13 @@ async function runAgentStreamWithMcpTools(
     mcpLoaded: McpToolsLoadResult;
     browserTools: OpenAITool[];
     systemPrompt: string;
+    orchestrator: OrchestratorSyncSettings;
   },
   port: chrome.runtime.Port,
   signal?: AbortSignal
 ): Promise<{ text: string; reasoningSteps: ReasoningStep[] } | { error: string }> {
-  const { mcpLoaded: loaded, browserTools, systemPrompt } = toolsContext;
+  const { mcpLoaded: loaded, browserTools, systemPrompt, orchestrator } = toolsContext;
+  const finalizeToolContent = createToolContentFinalizer(orchestrator, signal);
   let { tools, toolToServer } = loaded;
   if (tools.length === 0 && loaded.mcpConfigured) {
     tools = [MCP_DIAGNOSE_TOOL];
@@ -667,81 +767,45 @@ async function runAgentStreamWithMcpTools(
         : [];
     return { text: result.text, reasoningSteps: steps };
   }
-  const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
-  const reasoningSteps: ReasoningStep[] = [];
-
-  for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
-    const result = await chatWithLLMStreamWithTools(messages, {
+  const toolCatalogMarkdown = buildEnrichedToolCatalogMarkdown(openAITools, toolToServer);
+  return orchestrateStreamingAgent(
+    userMessage,
+    {
       systemPrompt,
       tools: openAITools,
-      onChunk: (text) => safePortPost(port, { type: "chunk", text }),
+      toolToServer,
       signal
-    });
-
-    if ("error" in result) return result;
-    if (!("tool_calls" in result) || !result.tool_calls || result.tool_calls.length === 0) {
-      const xmlCalls =
-        browserTools.length > 0 ? parseXmlStyleToolCalls(result.text ?? "") : [];
-      if (xmlCalls.length > 0) {
-        const roundSteps: ReasoningStep[] = [];
-        if (result.thinking != null && result.thinking !== "") {
-          reasoningSteps.push({ type: "thinking", text: result.thinking });
-          roundSteps.push({ type: "thinking", text: result.thinking });
-        }
-        const toolResults = await executeToolCallsAndAppendMessages(
-          xmlCalls,
-          toolToServer,
-          messages
-        );
-        for (const tr of toolResults) {
-          const serverName =
-            tr.serverName != null && String(tr.serverName).trim() !== ""
-              ? String(tr.serverName).trim()
-              : "mcp";
-          const step: ReasoningStep = {
-            type: "tool_call",
-            name: tr.name,
-            serverName,
-            args: tr.args || undefined,
-            result: tr.result
-          };
-          reasoningSteps.push(step);
-          roundSteps.push(step);
-        }
-        safePortPost(port, { type: "reasoning_step", steps: roundSteps });
-        const summary = toolResults.map((r) => r.result).join(". ");
-        return { text: summary || result.text, reasoningSteps };
-      }
-      if (result.thinking != null && result.thinking !== "") {
-        reasoningSteps.push({ type: "thinking", text: result.thinking });
-      }
-      return { text: result.text, reasoningSteps };
+    },
+    {
+      maxIterations: orchestrator.orchestratorMaxToolIterations,
+      hasBrowserTools: browserTools.length > 0,
+      narrowToolsToRelevance: orchestrator.orchestratorNarrowToolsToRelevance,
+      onChunk: (text) => safePortPost(port, { type: "chunk", text }),
+      callLlmWithTools: (messages, opts) =>
+        chatWithLLMStreamWithTools(messages, {
+          systemPrompt: opts.systemPrompt,
+          tools: opts.tools,
+          onChunk: opts.onChunk,
+          signal: opts.signal
+        }),
+      executeTools: (calls, map, msgs) =>
+        executeToolCallsAndAppendMessages(calls, map, msgs, finalizeToolContent, {
+          onToolStart: (tc) =>
+            safePortPost(port, {
+              type: "tool_exec",
+              phase: "start",
+              toolCallId: tc.id,
+              name: tc.name
+            }),
+          onToolEnd: (tc) =>
+            safePortPost(port, { type: "tool_exec", phase: "end", toolCallId: tc.id, name: tc.name })
+        }),
+      onToolRoundComplete: (steps) => {
+        safePortPost(port, { type: "reasoning_step", steps });
+      },
+      subtasks: createDefaultOrchestratorSubtasks(orchestrator, signal, toolCatalogMarkdown)
     }
-
-    const roundSteps: ReasoningStep[] = [];
-    if (result.thinking != null && result.thinking !== "") {
-      reasoningSteps.push({ type: "thinking", text: result.thinking });
-      roundSteps.push({ type: "thinking", text: result.thinking });
-    }
-    const toolResults = await executeToolCallsAndAppendMessages(result.tool_calls, toolToServer, messages);
-    for (const tr of toolResults) {
-      const serverName = (tr.serverName != null && String(tr.serverName).trim() !== "")
-        ? String(tr.serverName).trim()
-        : "mcp";
-      const step: ReasoningStep = {
-        type: "tool_call",
-        name: tr.name,
-        serverName,
-        args: tr.args || undefined,
-        result: tr.result
-      };
-      reasoningSteps.push(step);
-      roundSteps.push(step);
-    }
-    safePortPost(port, { type: "reasoning_step", steps: roundSteps });
-  }
-
-  return { error: "Agent reached max tool iterations without final answer" };
+  );
 }
 
 /**
@@ -753,9 +817,11 @@ async function runAgentWithMcpTools(
     mcpLoaded: McpToolsLoadResult;
     browserTools: OpenAITool[];
     systemPrompt: string;
+    orchestrator: OrchestratorSyncSettings;
   }
 ): Promise<{ text: string } | { error: string }> {
-  const { mcpLoaded: loaded, browserTools, systemPrompt } = toolsContext;
+  const { mcpLoaded: loaded, browserTools, systemPrompt, orchestrator } = toolsContext;
+  const finalizeToolContent = createToolContentFinalizer(orchestrator);
   let { tools, toolToServer } = loaded;
   if (tools.length === 0 && loaded.mcpConfigured) {
     tools = [MCP_DIAGNOSE_TOOL];
@@ -775,36 +841,28 @@ async function runAgentWithMcpTools(
     return { text: result.text };
   }
 
-  const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
-
-  for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
-    const result = await chatWithLLMOneRound(messages, {
+  const toolCatalogMarkdownSync = buildEnrichedToolCatalogMarkdown(openAIToolsForAgent, toolToServer);
+  return orchestrateSyncAgent(
+    userMessage,
+    {
       systemPrompt,
-      tools: openAIToolsForAgent
-    });
-
-    if ("error" in result) return result;
-    if ("text" in result) {
-      const xmlCalls =
-        browserTools.length > 0 ? parseXmlStyleToolCalls(result.text) : [];
-      if (xmlCalls.length > 0) {
-        const toolResults = await executeToolCallsAndAppendMessages(
-          xmlCalls,
-          toolToServer,
-          messages
-        );
-        const summary = toolResults.map((r) => r.result).join(". ");
-        return { text: summary || result.text };
-      }
-      return { text: result.text };
+      tools: openAIToolsForAgent,
+      toolToServer
+    },
+    {
+      maxIterations: orchestrator.orchestratorMaxToolIterations,
+      hasBrowserTools: browserTools.length > 0,
+      narrowToolsToRelevance: orchestrator.orchestratorNarrowToolsToRelevance,
+      callLlmOneRound: (messages, opts) =>
+        chatWithLLMOneRound(messages, {
+          systemPrompt: opts.systemPrompt,
+          tools: opts.tools
+        }),
+      executeTools: (calls, map, msgs) =>
+        executeToolCallsAndAppendMessages(calls, map, msgs, finalizeToolContent),
+      subtasks: createDefaultOrchestratorSubtasks(orchestrator, undefined, toolCatalogMarkdownSync)
     }
-
-    const toolCalls = result.tool_calls;
-    if (!toolCalls || toolCalls.length === 0) break;
-    await executeToolCallsAndAppendMessages(toolCalls, toolToServer, messages);
-  }
-
-  return { error: "Agent reached max tool iterations without final answer" };
+  );
 }
 
 const PING_RUNNER_URL = "ping-runner.html";
@@ -912,13 +970,13 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
       sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
     }
 
-    const { mcpLoaded, browserTools, systemPrompt } = await loadAgentToolsAndPrompt();
+    const { mcpLoaded, browserTools, systemPrompt, orchestrator } = await loadAgentToolsAndPrompt();
     const hasAnyTools = mcpLoaded.tools.length > 0 || browserTools.length > 0;
 
     if (hasAnyTools) {
       const result = await runAgentStreamWithMcpTools(
         userMessage,
-        { mcpLoaded, browserTools, systemPrompt },
+        { mcpLoaded, browserTools, systemPrompt, orchestrator },
         port,
         abortController.signal
       );
@@ -931,7 +989,8 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
         content: result.text,
         timestamp: new Date().toISOString(),
         ...(result.reasoningSteps.length > 0 ? { reasoningSteps: result.reasoningSteps } : {}),
-        ...(sourcesForDone ? { sources: sourcesForDone } : {})
+        ...(sourcesForDone ? { sources: sourcesForDone } : {}),
+        orchestrationMetrics: result.metrics
       };
       const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
       if (!sentMcp) {
@@ -1034,11 +1093,11 @@ chrome.runtime.onMessage.addListener((message: MessageFromContent | MessageFromP
       try {
         // Парсим текущую страницу только если в вопросе явно просят про неё
         if (!isQuestionAboutCurrentPage(queryText)) {
-          const { mcpLoaded, browserTools, systemPrompt } = await loadAgentToolsAndPrompt();
+          const { mcpLoaded, browserTools, systemPrompt, orchestrator } = await loadAgentToolsAndPrompt();
           const hasAnyTools = mcpLoaded.tools.length > 0 || browserTools.length > 0;
 
           const result = hasAnyTools
-            ? await runAgentWithMcpTools(queryText, { mcpLoaded, browserTools, systemPrompt })
+            ? await runAgentWithMcpTools(queryText, { mcpLoaded, browserTools, systemPrompt, orchestrator })
             : await chatWithLLM([{ role: "user", content: queryText }], { systemPrompt });
 
           if ("error" in result) {
@@ -1052,7 +1111,8 @@ chrome.runtime.onMessage.addListener((message: MessageFromContent | MessageFromP
               role: "assistant",
               content: finalText,
               timestamp: new Date().toISOString(),
-              ...(thinking != null && thinking !== "" ? { thinking } : {})
+              ...(thinking != null && thinking !== "" ? { thinking } : {}),
+              ...(hasAnyTools && "metrics" in result ? { orchestrationMetrics: result.metrics } : {})
             }
           });
           return;

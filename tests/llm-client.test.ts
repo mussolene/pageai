@@ -36,13 +36,14 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
               llmMaxTokens: 512
             });
           },
-          set: vi.fn()
+          // Миграция в getLlmConfigsAndActive ждёт колбэк от set — иначе Promise не резолвится.
+          set: vi.fn((_data: unknown, cb?: () => void) => cb?.())
         },
         local: {
           get: (defaults: any, callback: Function) => {
-            callback({ llmApiKey: "" });
+            callback({ llmApiKey: "", llmApiKeys: {} });
           },
-          set: vi.fn()
+          set: vi.fn((_data: unknown, cb?: () => void) => cb?.())
         }
       }
     };
@@ -52,6 +53,7 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
     vi.resetAllMocks();
   });
 
+  /** checkLmStudioHealth = getLlmConfig + checkLlmConnection (storage + fetch); covered here, not in llm-connection unit tests. */
   describe("checkLmStudioHealth", () => {
     it("should return available:true when LM Studio is running", async () => {
       (global.fetch as any).mockResolvedValueOnce({

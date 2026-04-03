@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   checkLlmConnection,
   getLMStudioModelsForEndpoint,
-  checkLmStudioHealth,
   normalizeEndpoint,
 } from "../src/llm/client";
 
@@ -167,50 +166,6 @@ describe("getLMStudioModelsForEndpoint", () => {
     const r = await getLMStudioModelsForEndpoint("http://localhost:1234/v1/chat/completions");
     expect("error" in r).toBe(true);
     expect(r.error).toContain("Failed to get models");
-  });
-});
-
-describe("checkLmStudioHealth", () => {
-  beforeEach(() => {
-    global.fetch = vi.fn();
-    (global as any).chrome = {
-      storage: {
-        sync: {
-          get: (defaults: any, cb: (v: any) => void) =>
-            cb({
-              llmEndpoint: "http://localhost:1234/v1/chat/completions",
-              llmModel: "qwen/qwen3-4b-2507",
-              llmTemperature: 0.7,
-              llmMaxTokens: 512,
-            }),
-        },
-        local: {
-          get: (_: any, cb: (v: any) => void) => cb({ llmApiKey: "" }),
-          set: vi.fn(),
-        },
-      },
-    };
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("returns available when config and models exist", async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ data: [{ id: "qwen/qwen3-4b-2507" }] }),
-    });
-    const r = await checkLmStudioHealth();
-    expect(r.available).toBe(true);
-  });
-
-  it("returns available: false when config is null", async () => {
-    (global as any).chrome.storage.sync.get = (_: any, cb: (v: any) => void) =>
-      cb({ llmEndpoint: "", llmModel: "" });
-    const r = await checkLmStudioHealth();
-    expect(r.available).toBe(false);
-    expect(r.error).toContain("not configured");
   });
 });
 

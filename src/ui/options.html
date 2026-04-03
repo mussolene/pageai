@@ -17,6 +17,7 @@
         <nav class="settings-nav" role="navigation" aria-label="Settings sections">
           <button type="button" class="settings-nav-item is-active" data-section="llm" id="nav-llm">LLM</button>
           <button type="button" class="settings-nav-item" data-section="browser" id="nav-browser">Browser</button>
+          <button type="button" class="settings-nav-item" data-section="agent" id="nav-agent">Agent</button>
           <button type="button" class="settings-nav-item" data-section="mcp" id="nav-mcp">MCP</button>
           <button type="button" class="settings-nav-item" data-section="rules" id="nav-rules">Rules</button>
           <button type="button" class="settings-nav-item" data-section="skills" id="nav-skills">Skills</button>
@@ -89,6 +90,100 @@
                     <input type="checkbox" id="browser-automation-enabled" class="toggle-input" />
                     <span class="toggle" aria-hidden="true"></span>
                   </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-agent" class="settings-section hidden" aria-labelledby="nav-agent">
+            <h2 class="settings-section-title">Agent orchestrator</h2>
+            <p class="settings-section-desc">
+              Sub-planner and verify run as separate short LLM calls. Tool output compression applies only before the main model sees results (per tool, when over the threshold).
+            </p>
+            <div class="settings-content">
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-orchestrator-plan">Plan subtask (clean context)</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="orchestrator-plan-enabled">
+                    <input type="checkbox" id="orchestrator-plan-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-orchestrator-verify">Verify after each tool round</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="orchestrator-verify-enabled">
+                    <input type="checkbox" id="orchestrator-verify-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-orchestrator-tool-relevance">Match tools to query (subtask before loop)</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="orchestrator-tool-relevance-enabled">
+                    <input type="checkbox" id="orchestrator-tool-relevance-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-orchestrator-narrow-tools">Narrow MCP tools to relevance plan (TOOL_PLAN_JSON)</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="orchestrator-narrow-tools-enabled">
+                    <input type="checkbox" id="orchestrator-narrow-tools-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-max-tool-iterations">Max tool rounds (main budget)</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-max-tool-iterations" min="3" max="40" step="1" value="10" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-orchestrator-compress">Compress long tool outputs</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="orchestrator-compress-enabled">
+                    <input type="checkbox" id="orchestrator-compress-enabled" class="toggle-input" />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-compress-mode">Compression mode</label>
+                <div class="settings-row-control">
+                  <select id="orchestrator-compress-mode" aria-label="Compression mode">
+                    <option value="llm">LLM summarize (then truncate if needed)</option>
+                    <option value="truncate">Truncate only (no extra LLM call)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-compress-min-chars">Min size to compress (chars)</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-compress-min-chars" min="1000" max="500000" step="500" value="8000" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-compress-max-input">Max input to summarizer (chars)</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-compress-max-input" min="2000" max="500000" step="1000" value="28000" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-compress-target">Target length after compress (chars)</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-compress-target" min="400" max="100000" step="200" value="4000" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-vertical">
+                <label class="settings-row-label" for="agent-search-lexicon">Search lexicon</label>
+                <div class="settings-row-control">
+                  <textarea id="agent-search-lexicon" rows="5" placeholder="One line per hint, e.g.&#10;K8s = Kubernetes&#10;LLM = large language model&#10;product codename X = public name Y"></textarea>
+                  <span id="agent-orchestrator-status" class="status"></span>
                 </div>
               </div>
             </div>

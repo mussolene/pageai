@@ -498,6 +498,31 @@ export async function chatWithLLMOneRound(
   }
 }
 
+/**
+ * Короткая подзадача без истории чата и без кеша (план / проверка оркестратора).
+ * Не передаёт tools — только system + один user.
+ */
+export async function chatWithLLMSubtask(
+  userContent: string,
+  options: {
+    systemPrompt: string;
+    maxTokens?: number;
+    temperature?: number;
+    signal?: AbortSignal;
+  }
+): Promise<{ text: string } | { error: string }> {
+  const r = await chatWithLLMOneRound([{ role: "user", content: userContent }], {
+    systemPrompt: options.systemPrompt,
+    maxTokens: options.maxTokens ?? 512,
+    temperature: options.temperature ?? 0.3
+  });
+  if ("error" in r) return r;
+  if ("tool_calls" in r && r.tool_calls.length > 0) {
+    return { error: "Subtask model returned tool calls instead of text" };
+  }
+  return { text: "text" in r ? r.text : "" };
+}
+
 /** Стриминг ответа чата: SSE, вызов onChunk на каждый delta content. Для UI «размышлений». */
 export async function chatWithLLMStream(
   messages: LlmChatMessage[],

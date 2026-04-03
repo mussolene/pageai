@@ -44,6 +44,10 @@ export type ReasoningStep =
   | { type: "thinking"; text: string }
   | { type: "tool_call"; name: string; serverName?: string; args?: string; result?: string };
 
+import type { OrchestrationMetrics } from "../agent/pipeline";
+
+export type { OrchestrationMetrics };
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -53,4 +57,6 @@ export interface ChatMessage {
   /** Цепочка шагов рассуждения: размышления и вызовы инструментов (сохраняются все раунды) */
   reasoningSteps?: ReasoningStep[];
   sources?: Array<{ title: string; url: string }>;
+  /** Итог цикла агента: раунды, verify, причина остановки */
+  orchestrationMetrics?: OrchestrationMetrics;
 }

@@ -292,6 +292,125 @@ body {
   background: var(--border);
 }
 
+.streaming-reasoning-anchor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+/* Один инструмент в работе — компактный шиммер у summary (не весь список сообщений). */
+.streaming-reasoning-anchor .tool-call-block.tool-exec-running {
+  position: relative;
+  border-radius: 8px;
+  outline: 1px solid transparent;
+  animation: pageai-tool-row-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pageai-tool-row-pulse {
+  0%,
+  100% {
+    outline-color: transparent;
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+  50% {
+    outline-color: rgba(59, 130, 246, 0.35);
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12);
+  }
+}
+
+.streaming-reasoning-anchor .tool-call-block.tool-exec-running summary::after {
+  content: "";
+  display: inline-block;
+  width: 36px;
+  height: 6px;
+  margin-left: 8px;
+  border-radius: 3px;
+  vertical-align: middle;
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 0%,
+    var(--accent) 45%,
+    var(--bg-elevated) 90%
+  );
+  background-size: 200% 100%;
+  animation: pageai-tools-shimmer-bar 1.1s ease-in-out infinite;
+}
+
+/* Пока background выполняет инструменты: полоса + перелив текста справа налево */
+.messages.tools-executing-shimmer {
+  position: relative;
+}
+
+.messages.tools-executing-shimmer::before {
+  content: "";
+  display: block;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  flex-shrink: 0;
+  height: 2px;
+  margin: 0 0 6px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(59, 130, 246, 0.2) 40%,
+    var(--accent) 50%,
+    rgba(59, 130, 246, 0.2) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: pageai-tools-shimmer-bar 1.1s ease-in-out infinite;
+}
+
+@keyframes pageai-tools-shimmer-bar {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.messages.tools-executing-shimmer::after {
+  content: "Running tools…";
+  display: block;
+  position: sticky;
+  top: 2px;
+  z-index: 3;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
+  line-height: 1.25;
+  background: linear-gradient(
+    100deg,
+    var(--text-dim) 0%,
+    var(--text-muted) 25%,
+    var(--accent) 50%,
+    var(--text-muted) 75%,
+    var(--text-dim) 100%
+  );
+  background-size: 220% auto;
+  background-position: 100% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: pageai-tools-shimmer-text 1.85s linear infinite;
+}
+
+@keyframes pageai-tools-shimmer-text {
+  0% {
+    background-position: 100% center;
+  }
+  100% {
+    background-position: -120% center;
+  }
+}
+
 .message {
   display: flex;
   flex-direction: column;
