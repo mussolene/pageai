@@ -24,6 +24,10 @@ const mcpServersConfigInput = document.getElementById("mcp-servers-config") as H
 const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivElement | null;
 const mcpStatus = document.getElementById("mcp-status") as HTMLSpanElement | null;
 const browserAutomationCheckbox = document.getElementById("browser-automation-enabled") as HTMLInputElement | null;
+const agentRulesInput = document.getElementById("agent-rules") as HTMLTextAreaElement | null;
+const agentSkillsInput = document.getElementById("agent-skills") as HTMLTextAreaElement | null;
+const rulesStatusEl = document.getElementById("rules-status") as HTMLSpanElement | null;
+const skillsStatusEl = document.getElementById("skills-status") as HTMLSpanElement | null;
 
 let editingConfigId: string | null = null;
 
@@ -331,12 +335,23 @@ async function updateUI() {
   if (llmConfigCancelBtn) llmConfigCancelBtn.textContent = "Cancel";
   const summaries = document.querySelectorAll('details summary');
   if (summaries[1]) (summaries[1] as HTMLElement).textContent = await translate("settings.browserAutomation");
-  const browserAutomationDetails = document.querySelector('.browser-automation-row .label-text');
-  if (browserAutomationDetails) browserAutomationDetails.textContent = await translate("settings.browserAutomationDescription");
+  const labelBrowserAutomation = document.getElementById("label-browser-automation");
+  if (labelBrowserAutomation) labelBrowserAutomation.textContent = await translate("settings.browserAutomationDescription");
 
-  const mcpLabel = document.getElementById("options-mcp-label");
+  const mcpLabel = document.querySelector('#section-mcp .settings-row-label');
   if (mcpLabel) mcpLabel.textContent = await translate("settings.mcpServersConfig");
   if (mcpServersConfigInput) mcpServersConfigInput.placeholder = await translate("settings.mcpServersConfigPlaceholder");
+
+  const navLlm = document.getElementById("nav-llm");
+  const navBrowser = document.getElementById("nav-browser");
+  const navMcp = document.getElementById("nav-mcp");
+  const navRules = document.getElementById("nav-rules");
+  const navSkills = document.getElementById("nav-skills");
+  if (navLlm) navLlm.textContent = "LLM";
+  if (navBrowser) navBrowser.textContent = "Browser";
+  if (navMcp) navMcp.textContent = "MCP";
+  if (navRules) navRules.textContent = "Rules";
+  if (navSkills) navSkills.textContent = "Skills";
 }
 
 function loadBrowserAutomation() {
@@ -361,6 +376,52 @@ function wireEvents() {
     chrome.storage.sync.get({ mcpServersEnabled: {} as Record<string, boolean> }, (items) => {
       void renderMcpServersList(items.mcpServersEnabled || {}, mcpServersConfigInput?.value ?? "");
     });
+  });
+
+  document.querySelectorAll(".settings-nav-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const section = (btn as HTMLElement).dataset.section;
+      if (!section) return;
+      document.querySelectorAll(".settings-nav-item").forEach((b) => b.classList.remove("is-active"));
+      btn.classList.add("is-active");
+      document.querySelectorAll(".settings-section").forEach((sec) => {
+        const id = sec.id;
+        (sec as HTMLElement).classList.toggle("hidden", !id || id !== `section-${section}`);
+      });
+    });
+  });
+
+  function showRulesSaved(): void {
+    if (rulesStatusEl) {
+      rulesStatusEl.textContent = "Saved";
+      rulesStatusEl.className = "status success";
+      setTimeout(() => { rulesStatusEl!.textContent = ""; rulesStatusEl!.className = "status"; }, 2000);
+    }
+  }
+  function showSkillsSaved(): void {
+    if (skillsStatusEl) {
+      skillsStatusEl.textContent = "Saved";
+      skillsStatusEl.className = "status success";
+      setTimeout(() => { skillsStatusEl!.textContent = ""; skillsStatusEl!.className = "status"; }, 2000);
+    }
+  }
+  agentRulesInput?.addEventListener("input", () => {
+    const v = agentRulesInput.value;
+    chrome.storage.sync.set({ agentRules: v });
+    showRulesSaved();
+  });
+  agentRulesInput?.addEventListener("blur", () => {
+    chrome.storage.sync.set({ agentRules: agentRulesInput?.value ?? "" });
+    showRulesSaved();
+  });
+  agentSkillsInput?.addEventListener("input", () => {
+    const v = agentSkillsInput.value;
+    chrome.storage.sync.set({ agentSkills: v });
+    showSkillsSaved();
+  });
+  agentSkillsInput?.addEventListener("blur", () => {
+    chrome.storage.sync.set({ agentSkills: agentSkillsInput?.value ?? "" });
+    showSkillsSaved();
   });
 }
 
@@ -399,8 +460,16 @@ function loadMcp() {
   );
 }
 
+function loadRulesAndSkills(): void {
+  chrome.storage.sync.get({ agentRules: "", agentSkills: "" }, (items) => {
+    if (agentRulesInput) agentRulesInput.value = (items.agentRules as string) ?? "";
+    if (agentSkillsInput) agentSkillsInput.value = (items.agentSkills as string) ?? "";
+  });
+}
+
 wireEvents();
 loadLlmConfigs();
 loadMcp();
 loadBrowserAutomation();
+loadRulesAndSkills();
 void updateUI();

@@ -63,13 +63,9 @@ export interface McpServersConfig {
   mcpServers?: Record<string, McpServerEntry>;
 }
 
+/** Empty by default so users don't get "example: Failed to fetch" until they add a real server. */
 const DEFAULT_MCP_CONFIG = `{
-  "mcpServers": {
-    "example": {
-      "url": "http://localhost:8007/mcp",
-      "headers": {}
-    }
-  }
+  "mcpServers": {}
 }`;
 
 export interface McpServerInfo {

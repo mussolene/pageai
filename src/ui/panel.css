@@ -242,8 +242,27 @@ body {
 }
 
 .settings-panel.tab-panel {
-  overflow-y: auto;
-  padding: 16px;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-layout-panel {
+  min-height: 0;
+}
+
+.settings-layout-panel .settings-nav {
+  padding: 8px 6px;
+}
+
+.settings-layout-panel .settings-nav-item {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.settings-layout-panel .settings-main {
+  padding: 12px 14px;
 }
 
 .messages {
@@ -1065,6 +1084,198 @@ button.primary:hover {
   margin: 12px 0;
   border: none;
   border-top: 1px solid var(--border);
+}
+
+/* Two-column settings layout (options page) */
+.settings-layout-two-col {
+  display: grid;
+  grid-template-columns: minmax(160px, 200px) 1fr;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+
+.settings-nav-item:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.settings-nav-item.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.settings-main {
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.settings-section {
+  display: block;
+}
+
+.settings-section.hidden {
+  display: none !important;
+}
+
+.settings-section-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-section-desc {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings-row-label {
+  flex: 0 0 140px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.settings-row-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-row-control input[type="text"],
+.settings-row-control input[type="password"],
+.settings-row-control input[type="number"],
+.settings-row-control select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-row-control textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.settings-row-control-endpoint {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-row-control-endpoint input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-row-vertical .settings-row-label {
+  flex: 0 0 auto;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.settings-row-vertical .settings-row-control {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-row-toggle {
+  align-items: center;
+}
+
+.settings-row-toggle .settings-row-control {
+  flex: 0 0 auto;
+}
+
+.toggle-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  cursor: pointer;
+}
+
+.toggle-wrap .toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.toggle-wrap .toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border);
+  transition: background var(--transition);
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.toggle-wrap .toggle::after {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  box-shadow: var(--elevation-1);
+  transition: transform var(--transition);
+}
+
+.toggle-wrap .toggle-input:checked + .toggle {
+  background: var(--accent);
+}
+
+.toggle-wrap .toggle-input:checked + .toggle::after {
+  transform: translateX(20px);
 }
 
 .mcp-servers-list {

@@ -153,8 +153,32 @@ function setInputValue(
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-// Обработка запроса текущей страницы и клика по элементу от background
+// Обработка запросов от background: чтение страницы, клик, ввод, навигация
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "PAGE_NAVIGATE") {
+    const payload = message.payload as { url?: string } | undefined;
+    const url = payload?.url?.trim();
+    if (!url) {
+      try {
+        sendResponse({ ok: false, error: "Need 'url' to navigate" });
+      } catch {
+        /* ignore */
+      }
+      return true;
+    }
+    try {
+      window.location.href = url;
+      sendResponse({ ok: true, message: "Navigated" });
+    } catch (err) {
+      try {
+        sendResponse({ ok: false, error: (err as Error).message });
+      } catch {
+        /* ignore */
+      }
+    }
+    return true;
+  }
+
   if (message.type === "PAGE_CLICK") {
     const payload = message.payload as { text?: string; selector?: string } | undefined;
     if (!payload || (!payload.text && !payload.selector)) {

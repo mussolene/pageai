@@ -710,9 +710,7 @@ async function updateUI() {
     clearChatBtn.setAttribute("aria-label", await translate("chat.clearChat"));
   }
 
-  const llmConfigLabel = document.querySelector('label:has(#llm-config-select) .label-text');
-  if (llmConfigLabel) llmConfigLabel.textContent = "LLM";
-  const browserAutomationLabel = document.querySelector('.browser-automation-row .label-text');
+  const browserAutomationLabel = document.querySelector("#settings-panel #panel-section-browser .settings-row-label");
   if (browserAutomationLabel) browserAutomationLabel.textContent = await translate("settings.browserAutomation");
   const themeBtnLight = document.querySelector('.theme-toggle-btn[data-theme="light"]');
   const themeBtnDark = document.querySelector('.theme-toggle-btn[data-theme="dark"]');
@@ -730,14 +728,34 @@ async function updateUI() {
     themeBtnSystem.setAttribute("title", await translate("settings.themeSystem"));
   }
 
-  const llmMaxTokensLabelText = document.querySelector('label:has(#llm-max-tokens) .label-text');
-  if (llmMaxTokensLabelText) llmMaxTokensLabelText.textContent = await translate("settings.maxTokens");
+  const llmMaxTokensLabel = document.querySelector("#settings-panel #panel-section-llm .settings-row-label:nth-of-type(2)");
+  if (llmMaxTokensLabel) llmMaxTokensLabel.textContent = await translate("settings.maxTokens");
   if (llmMaxTokensInput) llmMaxTokensInput.placeholder = (await translate("settings.maxTokensPlaceholder")) || "2048";
 
-  const mcpConfigLabel = document.querySelector('label:has(#mcp-servers-config) .label-text');
+  const mcpConfigLabel = document.querySelector("#settings-panel #panel-section-mcp .settings-row-label");
   if (mcpConfigLabel) mcpConfigLabel.textContent = await translate("settings.mcpServersConfig");
   if (mcpServersConfigInput) mcpServersConfigInput.placeholder = await translate("settings.mcpServersConfigPlaceholder");
   await renderMessages();
+}
+
+function switchSettingsSection(section: string): void {
+  document.querySelectorAll("#settings-panel .settings-nav-item").forEach((btn) => {
+    const s = (btn as HTMLElement).dataset.section;
+    btn.classList.toggle("is-active", s === section);
+  });
+  document.querySelectorAll("#settings-panel .settings-section").forEach((sec) => {
+    const id = sec.id;
+    (sec as HTMLElement).classList.toggle("hidden", !id || id !== `panel-section-${section}`);
+  });
+}
+
+function loadPanelRulesAndSkills(): void {
+  chrome.storage.sync.get({ agentRules: "", agentSkills: "" }, (items) => {
+    const rulesEl = document.getElementById("panel-agent-rules") as HTMLTextAreaElement | null;
+    const skillsEl = document.getElementById("panel-agent-skills") as HTMLTextAreaElement | null;
+    if (rulesEl) rulesEl.value = (items.agentRules as string) ?? "";
+    if (skillsEl) skillsEl.value = (items.agentSkills as string) ?? "";
+  });
 }
 
 function wireEvents() {
@@ -782,6 +800,54 @@ function wireEvents() {
     chatInput.style.height = "auto";
     chatInput.style.height = `${Math.min(chatInput.scrollHeight, 120)}px`;
   });
+  document.querySelectorAll("#settings-panel .settings-nav-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const section = (btn as HTMLElement).dataset.section;
+      if (section) switchSettingsSection(section);
+    });
+  });
+
+  const panelRulesEl = document.getElementById("panel-agent-rules") as HTMLTextAreaElement | null;
+  const panelSkillsEl = document.getElementById("panel-agent-skills") as HTMLTextAreaElement | null;
+  const panelRulesStatus = document.getElementById("panel-rules-status") as HTMLSpanElement | null;
+  const panelSkillsStatus = document.getElementById("panel-skills-status") as HTMLSpanElement | null;
+  function showPanelRulesSaved(): void {
+    if (panelRulesStatus) {
+      panelRulesStatus.textContent = "Saved";
+      panelRulesStatus.className = "status success";
+      setTimeout(() => {
+        panelRulesStatus!.textContent = "";
+        panelRulesStatus!.className = "status";
+      }, 2000);
+    }
+  }
+  function showPanelSkillsSaved(): void {
+    if (panelSkillsStatus) {
+      panelSkillsStatus.textContent = "Saved";
+      panelSkillsStatus.className = "status success";
+      setTimeout(() => {
+        panelSkillsStatus!.textContent = "";
+        panelSkillsStatus!.className = "status";
+      }, 2000);
+    }
+  }
+  panelRulesEl?.addEventListener("input", () => {
+    chrome.storage.sync.set({ agentRules: panelRulesEl?.value ?? "" });
+    showPanelRulesSaved();
+  });
+  panelRulesEl?.addEventListener("blur", () => {
+    chrome.storage.sync.set({ agentRules: panelRulesEl?.value ?? "" });
+    showPanelRulesSaved();
+  });
+  panelSkillsEl?.addEventListener("input", () => {
+    chrome.storage.sync.set({ agentSkills: panelSkillsEl?.value ?? "" });
+    showPanelSkillsSaved();
+  });
+  panelSkillsEl?.addEventListener("blur", () => {
+    chrome.storage.sync.set({ agentSkills: panelSkillsEl?.value ?? "" });
+    showPanelSkillsSaved();
+  });
+
   browserAutomationCheckbox?.addEventListener("change", () => {
     chrome.storage.sync.set({ browserAutomationEnabled: browserAutomationCheckbox.checked });
   });
@@ -832,3 +898,4 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 void updateUI();
 void loadChatHistory();
 void loadLlmConfig();
+loadPanelRulesAndSkills();

@@ -45,31 +45,81 @@
     </div>
 
     <div id="settings-panel" class="settings-panel tab-panel hidden">
-      <div class="settings-content">
-          <label class="llm-config-row">
-            <span class="label-text">LLM</span>
-            <div class="settings-row endpoint-row">
-              <select id="llm-config-select" class="model-select" aria-label="LLM config"></select>
-              <button id="llm-config-open-options" type="button" class="secondary" title="Add or edit configs">Add…</button>
+      <div class="settings-layout-two-col settings-layout-panel">
+        <nav class="settings-nav" role="navigation" aria-label="Settings sections">
+          <button type="button" class="settings-nav-item is-active" data-section="llm">LLM</button>
+          <button type="button" class="settings-nav-item" data-section="browser">Browser</button>
+          <button type="button" class="settings-nav-item" data-section="mcp">MCP</button>
+          <button type="button" class="settings-nav-item" data-section="rules">Rules</button>
+          <button type="button" class="settings-nav-item" data-section="skills">Skills</button>
+        </nav>
+        <main class="settings-main">
+          <section id="panel-section-llm" class="settings-section" aria-label="LLM">
+            <div class="settings-content">
+              <div class="settings-row">
+                <span class="settings-row-label">LLM</span>
+                <div class="settings-row-control">
+                  <select id="llm-config-select" class="model-select" aria-label="LLM config"></select>
+                  <button id="llm-config-open-options" type="button" class="secondary" title="Add or edit configs">Add…</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-row-label">Max tokens</span>
+                <div class="settings-row-control">
+                  <input id="llm-max-tokens" type="number" min="128" max="32768" placeholder="2048" />
+                </div>
+              </div>
+              <span id="llm-status" class="status"></span>
             </div>
-          </label>
-          <label>
-            <span class="label-text">Max tokens</span>
-            <input id="llm-max-tokens" type="number" min="128" max="32768" placeholder="2048" />
-          </label>
-          <span id="llm-status" class="status"></span>
-          <label class="browser-automation-row">
-            <input type="checkbox" id="browser-automation-enabled" class="toggle-input" />
-            <span class="toggle" aria-hidden="true"></span>
-            <span class="label-text">Browser automation</span>
-          </label>
-          <hr class="settings-sep" />
-          <label>
-            <span class="label-text">MCP servers (JSON)</span>
-            <textarea id="mcp-servers-config" rows="10" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
-          </label>
-          <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
-          <span id="mcp-status" class="status"></span>
+          </section>
+          <section id="panel-section-browser" class="settings-section hidden" aria-label="Browser automation">
+            <div class="settings-content">
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label">Browser automation</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="browser-automation-enabled">
+                    <input type="checkbox" id="browser-automation-enabled" class="toggle-input" />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section id="panel-section-mcp" class="settings-section hidden" aria-label="MCP">
+            <div class="settings-content">
+              <div class="settings-row settings-row-vertical">
+                <span class="settings-row-label">MCP servers (JSON)</span>
+                <div class="settings-row-control">
+                  <textarea id="mcp-servers-config" rows="10" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
+                </div>
+              </div>
+              <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
+              <span id="mcp-status" class="status"></span>
+            </div>
+          </section>
+          <section id="panel-section-rules" class="settings-section hidden" aria-label="Rules">
+            <div class="settings-content">
+              <div class="settings-row settings-row-vertical">
+                <span class="settings-row-label">Agent rules</span>
+                <div class="settings-row-control">
+                  <textarea id="panel-agent-rules" rows="4" placeholder="Rules for the agent…"></textarea>
+                  <span id="panel-rules-status" class="status"></span>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section id="panel-section-skills" class="settings-section hidden" aria-label="Skills">
+            <div class="settings-content">
+              <div class="settings-row settings-row-vertical">
+                <span class="settings-row-label">Agent skills</span>
+                <div class="settings-row-control">
+                  <textarea id="panel-agent-skills" rows="4" placeholder="Skills and capabilities…"></textarea>
+                  <span id="panel-skills-status" class="status"></span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
       </div>
     </div>
   </div>

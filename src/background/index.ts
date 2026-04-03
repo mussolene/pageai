@@ -2,7 +2,8 @@ import { MessageFromContent, MessageFromPanel, ChatMessage, Page, type Reasoning
 import { Storage } from "../storage/indexdb";
 import { summarizePages, chatWithLLM, chatWithLLMStream, chatWithLLMStreamWithTools, chatWithLLMOneRound, type LlmMessageForApi } from "../llm/client";
 import { buildSummaryPrompt } from "../llm/prompts";
-import { getEnabledMcpToolsWithMap, type OpenAITool } from "../mcp/agent-tools";
+import { getEnabledMcpToolsWithMap, type OpenAITool, type McpToolsLoadResult } from "../mcp/agent-tools";
+import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
 
 const storage = new Storage();
@@ -13,57 +14,6 @@ const MCP_DIAGNOSE_TOOL: OpenAITool = {
   function: {
     name: "mcp_diagnose",
     description: "Run MCP tools connectivity check. Call when user asks to verify/check if tools are connected, e.g. 'проверь инструменты', 'check MCP', 'are tools connected'."
-  }
-};
-
-/** Клик по элементу на текущей вкладке. */
-const PAGE_CLICK_TOOL: OpenAITool = {
-  type: "function",
-  function: {
-    name: "page_click",
-    description:
-      "User wants to activate something on the page: click, press, open, submit. Use for buttons, links, tabs, any clickable. Pass visible text or selector.",
-    parameters: {
-      type: "object",
-      properties: {
-        text: {
-          type: "string",
-          description: "Visible text/label of element (e.g. 'Submit', 'Войти')"
-        },
-        selector: {
-          type: "string",
-          description: "CSS selector if text is ambiguous"
-        }
-      }
-    }
-  }
-};
-
-/** Ввод текста в поле на странице. */
-const PAGE_FILL_TOOL: OpenAITool = {
-  type: "function",
-  function: {
-    name: "page_fill",
-    description:
-      "User wants to put text into a field: type, write, fill, insert, paste. Use for search, comment, form inputs, any input/textarea. Infer field from context (search, comment, query, etc.).",
-    parameters: {
-      type: "object",
-      properties: {
-        field: {
-          type: "string",
-          description: "How to find field: placeholder/label/name (e.g. search, comment, query, поиск, запрос)"
-        },
-        selector: {
-          type: "string",
-          description: "CSS selector if needed"
-        },
-        value: {
-          type: "string",
-          description: "Text to put in the field"
-        }
-      },
-      required: ["value"]
-    }
   }
 };
 
@@ -110,7 +60,7 @@ async function runMcpDiagnose(): Promise<string> {
         .map(([n, m]) => `${n}: ${m}`)
         .join("\n")
     : "No specific errors captured.";
-  return `Tools failed to load.\nErrors:\n${errs}\n\nSuggest: 1) Start 1C configurator (1c -config [path] -start); 2) Verify MCP server is running; 3) Check Settings → MCP.`;
+  return `Tools failed to load.\nErrors:\n${errs}\n\nSuggest: 1) Ensure the MCP server is running at the URL from Settings → MCP; 2) Or remove/disable that server in Settings → MCP if you don't use it.`;
 }
 
 const PAGE_LOAD_ERROR =
@@ -243,19 +193,35 @@ function buildSystemPromptWithToolStatus(
     mcpConfigured: boolean;
     loadErrors?: Record<string, string>;
   },
+  browserTools: OpenAITool[] | undefined,
   basePrompt: string
 ): string {
-  if (loaded.tools.length > 0) {
-    const toolList = loaded.tools
-      .map((t) => `${t.function.name}${t.function.description ? ": " + t.function.description : ""}`)
-      .join("; ");
+  const browserList = (browserTools ?? []).map(
+    (t) => `${t.function.name}${t.function.description ? ": " + t.function.description : ""}`
+  );
+  const mcpList = loaded.tools.map(
+    (t) => `${t.function.name}${t.function.description ? ": " + t.function.description : ""}`
+  );
+
+  const hasBrowser = browserList.length > 0;
+  const hasMcp = mcpList.length > 0;
+
+  if (hasBrowser || hasMcp) {
+    const sections: string[] = [];
+    if (hasBrowser) {
+      sections.push(`[BROWSER TOOLS] ${browserList.join("; ")}`);
+    }
+    if (hasMcp) {
+      sections.push(`[MCP TOOLS] ${mcpList.join("; ")}`);
+    }
+    const toolsBlock = sections.join("\n\n");
     return `${basePrompt}
 
-[TOOLS] ${toolList}
+${toolsBlock}
 
-[INTENT] Infer from natural language. Click/press/activate on page → page_click. Type/write/fill into a field → page_fill (field: search/comment/поиск/запрос, value: text). Search the web/look up/find online → web_search (query, optional engine: duckduckgo|google|yandex). Use tool_calls; no exact wording needed.`;
+[INTENT] Infer from natural language. Read/understand current page → page_read. Click/press/activate on page → page_click. Type/write/fill into a field → page_fill (field: search/comment/поиск/запрос, value: text). Navigate to URL → page_navigate (url). Search the web/look up/find online → web_search (query, optional engine: duckduckgo|google|yandex). Use tool_calls; no exact wording needed.`;
   }
-  if (loaded.mcpConfigured) {
+  if (!hasMcp && loaded.mcpConfigured) {
     const errLines =
       loaded.loadErrors && Object.keys(loaded.loadErrors).length > 0
         ? "\nLoad errors: " +
@@ -270,6 +236,60 @@ function buildSystemPromptWithToolStatus(
 You have the mcp_diagnose tool. When the user asks to check/verify tools ("проверь инструменты", "check MCP", "are tools connected?", etc.) — call mcp_diagnose and report its result. Do NOT proactively say the server is unreachable.`;
   }
   return basePrompt;
+}
+
+async function buildBaseSystemPromptWithAgentMeta(): Promise<string> {
+  const { agentRules, agentSkills } = await new Promise<{ agentRules: string; agentSkills: string }>((resolve) => {
+    chrome.storage.sync.get(
+      {
+        agentRules: "",
+        agentSkills: ""
+      },
+      (items) => {
+        resolve({
+          agentRules: (items.agentRules as string) || "",
+          agentSkills: (items.agentSkills as string) || ""
+        });
+      }
+    );
+  });
+
+  let prompt = BASE_CHAT_SYSTEM_PROMPT;
+  if (agentRules && agentRules.trim() !== "") {
+    prompt += `\n\n[RULES]\n${agentRules.trim()}`;
+  }
+  if (agentSkills && agentSkills.trim() !== "") {
+    prompt += `\n\n[SKILLS]\n${agentSkills.trim()}`;
+  }
+  return prompt;
+}
+
+async function loadAgentToolsAndPrompt(): Promise<{
+  mcpLoaded: McpToolsLoadResult;
+  browserTools: OpenAITool[];
+  systemPrompt: string;
+}> {
+  const [settings, mcpLoadedRaw, basePrompt] = await Promise.all([
+    new Promise<{ browserAutomationEnabled: boolean }>((resolve) => {
+      chrome.storage.sync.get({ browserAutomationEnabled: false }, (items) => {
+        resolve({
+          browserAutomationEnabled: Boolean(items.browserAutomationEnabled)
+        });
+      });
+    }),
+    getEnabledMcpToolsWithMap(),
+    buildBaseSystemPromptWithAgentMeta()
+  ]);
+
+  const mcpLoaded: McpToolsLoadResult =
+    "error" in mcpLoadedRaw
+      ? { tools: [], toolToServer: new Map(), mcpConfigured: false, loadErrors: undefined }
+      : mcpLoadedRaw;
+  const browserTools = getBrowserTools({
+    browserAutomationEnabled: settings.browserAutomationEnabled
+  });
+  const systemPrompt = buildSystemPromptWithToolStatus(mcpLoaded, browserTools, basePrompt);
+  return { mcpLoaded, browserTools, systemPrompt };
 }
 
 /** Результат одного вызова инструмента для отображения в цепочке рассуждений. */
@@ -295,7 +315,14 @@ function parseXmlStyleToolCalls(
   let m: RegExpExecArray | null;
   while ((m = funcRegex.exec(text)) !== null) {
     const name = m[1].toLowerCase();
-    if (name !== "page_click" && name !== "page_fill" && name !== "web_search") continue;
+    if (
+      name !== "page_read" &&
+      name !== "page_click" &&
+      name !== "page_fill" &&
+      name !== "page_navigate" &&
+      name !== "web_search"
+    )
+      continue;
     const inner = m[2];
     const args: Record<string, string> = {};
     const paramRegex = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/gi;
@@ -303,7 +330,7 @@ function parseXmlStyleToolCalls(
     while ((pm = paramRegex.exec(inner)) !== null) {
       args[pm[1].toLowerCase()] = pm[2].trim();
     }
-    if (Object.keys(args).length === 0) continue;
+    if (name !== "page_read" && Object.keys(args).length === 0) continue;
     const argsStr = JSON.stringify(args);
     const key = `${name}:${argsStr}`;
     if (seenKeys.has(key)) continue;
@@ -345,6 +372,65 @@ async function executeToolCallsAndAppendMessages(
       const content = await runMcpDiagnose();
       messages.push({ role: "tool", tool_call_id: tc.id, content });
       results.push({ name: tc.name, args: argsStr, result: content });
+      continue;
+    }
+    if (tc.name === "page_read") {
+      const tabs = await new Promise<chrome.tabs.Tab[]>((r) =>
+        chrome.tabs.query({ active: true, currentWindow: true }, r)
+      );
+      const tabId = tabs[0]?.id;
+      if (tabId == null) {
+        const content = "No active tab. Open the page you want to read, then try again.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        continue;
+      }
+      let mode: string | undefined;
+      try {
+        if (argsStr) {
+          const parsed = JSON.parse(argsStr) as { mode?: string };
+          mode = parsed.mode;
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const pageResponse = await getCurrentPageWithRetry(tabId);
+        if (!pageResponse.ok || !pageResponse.page) {
+          const content =
+            pageResponse.error ||
+            "Could not read this page. Wait for it to load fully and try again.";
+          messages.push({ role: "tool", tool_call_id: tc.id, content });
+          results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+          continue;
+        }
+        const page = pageResponse.page;
+        if ((mode ?? "summary") === "full") {
+          const content = `Title: ${page.title}\nURL: ${page.url}\n\n${page.contentText ?? ""}`;
+          messages.push({ role: "tool", tool_call_id: tc.id, content });
+          results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        } else {
+          const summary = await summarizePages([page], {
+            pageIds: [page.id],
+            query: "Кратко перескажи содержимое этой страницы."
+          });
+          if ("error" in summary) {
+            const content = summary.error ?? "Failed to summarize page.";
+            messages.push({ role: "tool", tool_call_id: tc.id, content });
+            results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+          } else {
+            const content = summary.text ?? "No summary produced for this page.";
+            messages.push({ role: "tool", tool_call_id: tc.id, content });
+            results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+          }
+        }
+      } catch (err) {
+        const content =
+          (err instanceof Error ? err.message : String(err)) ||
+          "Failed to read current page.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+      }
       continue;
     }
     if (tc.name === "page_click") {
@@ -434,6 +520,55 @@ async function executeToolCallsAndAppendMessages(
       results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
       continue;
     }
+    if (tc.name === "page_navigate") {
+      let args: { url?: string } = {};
+      try {
+        if (argsStr) args = JSON.parse(argsStr) as { url?: string };
+      } catch {
+        /* leave args {} */
+      }
+      const url = (args.url ?? "").trim();
+      if (!url) {
+        const content = "Missing url for page_navigate.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        continue;
+      }
+      const tabs = await new Promise<chrome.tabs.Tab[]>((r) =>
+        chrome.tabs.query({ active: true, currentWindow: true }, r)
+      );
+      const tabId = tabs[0]?.id;
+      if (tabId == null) {
+        const content = "No active tab. Open a tab where you want to navigate and try again.";
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
+        results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+        continue;
+      }
+      const response = await new Promise<{ ok?: boolean; error?: string; message?: string }>(
+        (resolve) => {
+          chrome.tabs.sendMessage(
+            tabId,
+            { type: "PAGE_NAVIGATE", payload: { url } },
+            (res: { ok?: boolean; error?: string; message?: string } | undefined) => {
+              if (chrome.runtime.lastError) {
+                resolve({
+                  ok: false,
+                  error:
+                    chrome.runtime.lastError.message ??
+                    "Content script not ready. Reload the page."
+                });
+              } else {
+                resolve(res ?? { ok: false, error: "No response" });
+              }
+            }
+          );
+        }
+      );
+      const content = response.ok ? (response.message ?? "Navigated") : (response.error ?? "Failed");
+      messages.push({ role: "tool", tool_call_id: tc.id, content });
+      results.push({ name: tc.name, serverName: "page", args: argsStr, result: content });
+      continue;
+    }
     if (tc.name === "web_search") {
       let args: { query?: string; engine?: string } = {};
       try {
@@ -500,32 +635,30 @@ async function executeToolCallsAndAppendMessages(
  */
 async function runAgentStreamWithMcpTools(
   userMessage: string,
-  systemPrompt: string,
+  toolsContext: {
+    mcpLoaded: McpToolsLoadResult;
+    browserTools: OpenAITool[];
+    systemPrompt: string;
+  },
   port: chrome.runtime.Port,
   signal?: AbortSignal
 ): Promise<{ text: string; reasoningSteps: ReasoningStep[] } | { error: string }> {
-  const loaded = await getEnabledMcpToolsWithMap();
-  if ("error" in loaded) return { error: loaded.error };
+  const { mcpLoaded: loaded, browserTools, systemPrompt } = toolsContext;
   let { tools, toolToServer } = loaded;
   if (tools.length === 0 && loaded.mcpConfigured) {
     tools = [MCP_DIAGNOSE_TOOL];
     toolToServer = new Map();
   }
-  const { browserAutomationEnabled } = await new Promise<{ browserAutomationEnabled: boolean }>((r) =>
-    chrome.storage.sync.get({ browserAutomationEnabled: false }, r)
-  );
-  const pageTools: OpenAITool[] = browserAutomationEnabled ? [PAGE_CLICK_TOOL, PAGE_FILL_TOOL] : [];
-  const builtins = [...pageTools, WEB_SEARCH_TOOL];
+  const builtins = [...browserTools, WEB_SEARCH_TOOL];
   const openAITools: OpenAITool[] =
     tools.length > 0 ? [...tools, ...builtins] : builtins.length > 0 ? builtins : [];
   if (tools.length === 0) {
     toolToServer = new Map();
   }
   if (openAITools.length === 0) {
-    const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLMStream(
       [{ role: "user", content: userMessage }],
-      { systemPrompt: promptWithStatus, onChunk: (text) => safePortPost(port, { type: "chunk", text }), signal }
+      { systemPrompt, onChunk: (text) => safePortPost(port, { type: "chunk", text }), signal }
     );
     if ("error" in result) return result;
     const steps: ReasoningStep[] =
@@ -534,13 +667,12 @@ async function runAgentStreamWithMcpTools(
         : [];
     return { text: result.text, reasoningSteps: steps };
   }
-  const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
   const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
   const reasoningSteps: ReasoningStep[] = [];
 
   for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
     const result = await chatWithLLMStreamWithTools(messages, {
-      systemPrompt: systemPromptWithTools,
+      systemPrompt,
       tools: openAITools,
       onChunk: (text) => safePortPost(port, { type: "chunk", text }),
       signal
@@ -549,7 +681,7 @@ async function runAgentStreamWithMcpTools(
     if ("error" in result) return result;
     if (!("tool_calls" in result) || !result.tool_calls || result.tool_calls.length === 0) {
       const xmlCalls =
-        browserAutomationEnabled ? parseXmlStyleToolCalls(result.text ?? "") : [];
+        browserTools.length > 0 ? parseXmlStyleToolCalls(result.text ?? "") : [];
       if (xmlCalls.length > 0) {
         const roundSteps: ReasoningStep[] = [];
         if (result.thinking != null && result.thinking !== "") {
@@ -617,47 +749,44 @@ async function runAgentStreamWithMcpTools(
  */
 async function runAgentWithMcpTools(
   userMessage: string,
-  systemPrompt: string
+  toolsContext: {
+    mcpLoaded: McpToolsLoadResult;
+    browserTools: OpenAITool[];
+    systemPrompt: string;
+  }
 ): Promise<{ text: string } | { error: string }> {
-  const loaded = await getEnabledMcpToolsWithMap();
-  if ("error" in loaded) return { error: loaded.error };
+  const { mcpLoaded: loaded, browserTools, systemPrompt } = toolsContext;
   let { tools, toolToServer } = loaded;
   if (tools.length === 0 && loaded.mcpConfigured) {
     tools = [MCP_DIAGNOSE_TOOL];
     toolToServer = new Map();
   }
-  const { browserAutomationEnabled } = await new Promise<{ browserAutomationEnabled: boolean }>((r) =>
-    chrome.storage.sync.get({ browserAutomationEnabled: false }, r)
-  );
-  const pageToolsForAgent: OpenAITool[] = browserAutomationEnabled ? [PAGE_CLICK_TOOL, PAGE_FILL_TOOL] : [];
-  const builtinsForAgent = [...pageToolsForAgent, WEB_SEARCH_TOOL];
+  const builtinsForAgent = [...browserTools, WEB_SEARCH_TOOL];
   const openAIToolsForAgent: OpenAITool[] =
     tools.length > 0 ? [...tools, ...builtinsForAgent] : builtinsForAgent.length > 0 ? builtinsForAgent : [];
   if (tools.length === 0) {
     toolToServer = new Map();
   }
   if (openAIToolsForAgent.length === 0) {
-    const promptWithStatus = buildSystemPromptWithToolStatus(loaded, systemPrompt);
     const result = await chatWithLLM([{ role: "user", content: userMessage }], {
-      systemPrompt: promptWithStatus
+      systemPrompt
     });
     if ("error" in result) return result;
     return { text: result.text };
   }
 
-  const systemPromptWithTools = buildSystemPromptWithToolStatus(loaded, systemPrompt);
   const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
 
   for (let i = 0; i < MAX_AGENT_TOOL_ITERATIONS; i++) {
     const result = await chatWithLLMOneRound(messages, {
-      systemPrompt: systemPromptWithTools,
+      systemPrompt,
       tools: openAIToolsForAgent
     });
 
     if ("error" in result) return result;
     if ("text" in result) {
       const xmlCalls =
-        browserAutomationEnabled ? parseXmlStyleToolCalls(result.text) : [];
+        browserTools.length > 0 ? parseXmlStyleToolCalls(result.text) : [];
       if (xmlCalls.length > 0) {
         const toolResults = await executeToolCallsAndAppendMessages(
           xmlCalls,
@@ -741,6 +870,126 @@ chrome.notifications.onClicked.addListener((notificationId: string) => {
   chrome.action.openPopup?.();
 });
 
+/** Очередь задач чата: до MAX_CONCURRENT_CHAT_TASKS выполняются параллельно, остальные ждут. */
+const MAX_CONCURRENT_CHAT_TASKS = 2;
+interface ChatStreamTask {
+  id: string;
+  queryText: string;
+  port: chrome.runtime.Port;
+  abortController: AbortController;
+}
+const chatTaskQueue: ChatStreamTask[] = [];
+let activeChatTasks = 0;
+
+async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
+  const { port, queryText, abortController } = task;
+  let keepaliveOffscreenOpened = false;
+  try {
+    keepaliveOffscreenOpened = await openStreamKeepaliveOffscreen();
+
+    let userMessage = queryText;
+    let sourcesForDone: { title: string; url: string }[] | undefined;
+
+    if (isQuestionAboutCurrentPage(queryText)) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tabs[0] || !tabs[0].id) {
+        safePortPost(port, { type: "error", error: "No active tab found" });
+        return;
+      }
+      let currentPageResponse: GetCurrentPageResponse;
+      try {
+        currentPageResponse = await getCurrentPageWithRetry(tabs[0].id);
+      } catch (err) {
+        safePortPost(port, { type: "error", error: (err as Error).message || PAGE_LOAD_ERROR });
+        return;
+      }
+      if (!currentPageResponse.ok || !currentPageResponse.page) {
+        safePortPost(port, { type: "error", error: currentPageResponse.error || "Could not get current page." });
+        return;
+      }
+      const currentPage = currentPageResponse.page;
+      userMessage = buildSummaryPrompt([currentPage], queryText);
+      sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
+    }
+
+    const { mcpLoaded, browserTools, systemPrompt } = await loadAgentToolsAndPrompt();
+    const hasAnyTools = mcpLoaded.tools.length > 0 || browserTools.length > 0;
+
+    if (hasAnyTools) {
+      const result = await runAgentStreamWithMcpTools(
+        userMessage,
+        { mcpLoaded, browserTools, systemPrompt },
+        port,
+        abortController.signal
+      );
+      if ("error" in result) {
+        safePortPost(port, { type: "error", error: result.error });
+        return;
+      }
+      const doneMessage: ChatMessage = {
+        role: "assistant",
+        content: result.text,
+        timestamp: new Date().toISOString(),
+        ...(result.reasoningSteps.length > 0 ? { reasoningSteps: result.reasoningSteps } : {}),
+        ...(sourcesForDone ? { sources: sourcesForDone } : {})
+      };
+      const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
+      if (!sentMcp) {
+        await storage.saveChatMessage(doneMessage);
+        showChatReadyNotification();
+      }
+      return;
+    }
+
+    const result = await chatWithLLMStream(
+      [{ role: "user", content: userMessage }],
+      {
+        systemPrompt,
+        onChunk: (text: string) => safePortPost(port, { type: "chunk", text }),
+        signal: abortController.signal
+      }
+    );
+    if ("error" in result) {
+      safePortPost(port, { type: "error", error: result.error });
+      return;
+    }
+    const doneMsg: ChatMessage = {
+      role: "assistant",
+      content: result.text,
+      timestamp: new Date().toISOString(),
+      ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {}),
+      ...(sourcesForDone ? { sources: sourcesForDone } : {})
+    };
+    const sentStream = tryPortPost(port, { type: "done", message: doneMsg });
+    if (!sentStream) {
+      await storage.saveChatMessage(doneMsg);
+      showChatReadyNotification();
+    }
+  } catch (error) {
+    if ((error as Error).name === "AbortError") return;
+    safePortPost(port, { type: "error", error: (error as Error).message });
+  } finally {
+    if (keepaliveOffscreenOpened) {
+      await closeStreamKeepaliveOffscreen();
+    }
+    activeChatTasks -= 1;
+    if (chatTaskQueue.length > 0) {
+      const next = chatTaskQueue.shift()!;
+      activeChatTasks += 1;
+      void runOneChatStreamTask(next);
+    }
+  }
+}
+
+function enqueueChatStreamTask(task: ChatStreamTask): void {
+  if (activeChatTasks < MAX_CONCURRENT_CHAT_TASKS) {
+    activeChatTasks += 1;
+    void runOneChatStreamTask(task);
+  } else {
+    chatTaskQueue.push(task);
+  }
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "pageai-stream-keepalive") {
     port.onMessage.addListener(() => { /* пинги от ping-runner окна — только сброс idle таймера SW */ });
@@ -759,103 +1008,13 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
     const queryText = msg.payload.text.trim();
-
-    (async () => {
-      let keepaliveOffscreenOpened = false;
-      try {
-        keepaliveOffscreenOpened = await openStreamKeepaliveOffscreen();
-
-        let userMessage = queryText;
-        let sourcesForDone: { title: string; url: string }[] | undefined;
-
-        if (isQuestionAboutCurrentPage(queryText)) {
-          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (!tabs[0] || !tabs[0].id) {
-            safePortPost(port, { type: "error", error: "No active tab found" });
-            return;
-          }
-          let currentPageResponse: GetCurrentPageResponse;
-          try {
-            currentPageResponse = await getCurrentPageWithRetry(tabs[0].id);
-          } catch (err) {
-            safePortPost(port, { type: "error", error: (err as Error).message || PAGE_LOAD_ERROR });
-            return;
-          }
-          if (!currentPageResponse.ok || !currentPageResponse.page) {
-            safePortPost(port, { type: "error", error: currentPageResponse.error || "Could not get current page." });
-            return;
-          }
-          const currentPage = currentPageResponse.page;
-          userMessage = buildSummaryPrompt([currentPage], queryText);
-          sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
-        }
-
-        const mcpLoaded = await getEnabledMcpToolsWithMap();
-        const hasMcpTools = !("error" in mcpLoaded) && mcpLoaded.tools.length > 0;
-        const systemPrompt = buildSystemPromptWithToolStatus(
-          "error" in mcpLoaded ? { tools: [], mcpConfigured: false } : mcpLoaded,
-          BASE_CHAT_SYSTEM_PROMPT
-        );
-
-        if (hasMcpTools) {
-          const result = await runAgentStreamWithMcpTools(
-            userMessage,
-            systemPrompt,
-            port,
-            abortController.signal
-          );
-          if ("error" in result) {
-            safePortPost(port, { type: "error", error: result.error });
-            return;
-          }
-          const doneMessage: ChatMessage = {
-            role: "assistant",
-            content: result.text,
-            timestamp: new Date().toISOString(),
-            ...(result.reasoningSteps.length > 0 ? { reasoningSteps: result.reasoningSteps } : {}),
-            ...(sourcesForDone ? { sources: sourcesForDone } : {})
-          };
-          const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
-          if (!sentMcp) {
-            await storage.saveChatMessage(doneMessage);
-            showChatReadyNotification();
-          }
-          return;
-        }
-
-        const result = await chatWithLLMStream(
-          [{ role: "user", content: userMessage }],
-          {
-            systemPrompt,
-            onChunk: (text: string) => safePortPost(port, { type: "chunk", text }),
-            signal: abortController.signal
-          }
-        );
-        if ("error" in result) {
-          safePortPost(port, { type: "error", error: result.error });
-          return;
-        }
-        const doneMsg: ChatMessage = {
-          role: "assistant",
-          content: result.text,
-          timestamp: new Date().toISOString(),
-          ...(result.thinking != null && result.thinking !== "" ? { thinking: result.thinking } : {}),
-          ...(sourcesForDone ? { sources: sourcesForDone } : {})
-        };
-        const sentStream = tryPortPost(port, { type: "done", message: doneMsg });
-        if (!sentStream) {
-          await storage.saveChatMessage(doneMsg);
-          showChatReadyNotification();
-        }
-      } catch (error) {
-        if ((error as Error).name === "AbortError") return;
-        safePortPost(port, { type: "error", error: (error as Error).message });
-      } finally {
-        if (keepaliveOffscreenOpened) {
-          await closeStreamKeepaliveOffscreen();
-        }
-      }
-    })();
+    const task: ChatStreamTask = {
+      id: `stream-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      queryText,
+      port,
+      abortController
+    };
+    enqueueChatStreamTask(task);
   });
 });
 
@@ -875,15 +1034,11 @@ chrome.runtime.onMessage.addListener((message: MessageFromContent | MessageFromP
       try {
         // Парсим текущую страницу только если в вопросе явно просят про неё
         if (!isQuestionAboutCurrentPage(queryText)) {
-          const mcpLoaded = await getEnabledMcpToolsWithMap();
-          const hasMcpTools = !("error" in mcpLoaded) && mcpLoaded.tools.length > 0;
-          const systemPrompt = buildSystemPromptWithToolStatus(
-            "error" in mcpLoaded ? { tools: [], mcpConfigured: false } : mcpLoaded,
-            BASE_CHAT_SYSTEM_PROMPT
-          );
+          const { mcpLoaded, browserTools, systemPrompt } = await loadAgentToolsAndPrompt();
+          const hasAnyTools = mcpLoaded.tools.length > 0 || browserTools.length > 0;
 
-          const result = hasMcpTools
-            ? await runAgentWithMcpTools(queryText, BASE_CHAT_SYSTEM_PROMPT)
+          const result = hasAnyTools
+            ? await runAgentWithMcpTools(queryText, { mcpLoaded, browserTools, systemPrompt })
             : await chatWithLLM([{ role: "user", content: queryText }], { systemPrompt });
 
           if ("error" in result) {

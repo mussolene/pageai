@@ -1,7 +1,7 @@
 import type { Page, ChatMessage } from "../types/messages";
 
 const DB_NAME = "pageai_extension";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const PAGES_STORE = "pages";
 const CHAT_HISTORY_STORE = "chat_history";
 const LLM_CACHE_STORE = "llm_cache";
