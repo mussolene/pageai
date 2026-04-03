@@ -4,6 +4,9 @@ import {
   parseMcpServersConfigForCheck,
   parseMcpServersList,
   listMcpTools,
+  listMcpPrompts,
+  getMcpPrompt,
+  mcpPromptMessagesToPlainText,
   callMcpTool,
   getDefaultMcpServersConfig,
 } from "../src/mcp/client";
@@ -487,5 +490,122 @@ describe("callMcpTool", () => {
     const r = await callMcpTool("http://localhost:8007/mcp", "slow");
     expect("error" in r).toBe(true);
     if ("error" in r) expect(r.error).toContain("timeout");
+  });
+});
+
+describe("mcpPromptMessagesToPlainText", () => {
+  it("joins string content and text parts", () => {
+    const t = mcpPromptMessagesToPlainText([
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: [{ type: "text", text: "World" }] },
+    ]);
+    expect(t).toBe("Hello\n\nWorld");
+  });
+
+  it("returns empty for non-array", () => {
+    expect(mcpPromptMessagesToPlainText(null)).toBe("");
+  });
+});
+
+describe("listMcpPrompts", () => {
+  beforeEach(() => {
+    global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns empty prompts on JSON-RPC method not found", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "application/json" },
+        text: () =>
+          Promise.resolve(JSON.stringify({ error: { code: -32601, message: "Method not found" } })),
+      });
+    const r = await listMcpPrompts("http://localhost:8007/mcp");
+    expect("error" in r).toBe(false);
+    if (!("error" in r)) expect(r.prompts).toEqual([]);
+  });
+
+  it("returns prompts when prompts/list succeeds", async () => {
+    const payload = {
+      result: {
+        prompts: [
+          { name: "p1", description: "First" },
+          { name: "p2", arguments: [{ name: "q", required: true }] },
+        ],
+      },
+    };
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve(JSON.stringify(payload)),
+      });
+    const r = await listMcpPrompts("http://localhost:8007/mcp");
+    expect("error" in r).toBe(false);
+    if (!("error" in r)) {
+      expect(r.prompts).toHaveLength(2);
+      expect(r.prompts[0].name).toBe("p1");
+      expect(r.prompts[1].arguments?.[0].name).toBe("q");
+    }
+  });
+});
+
+describe("getMcpPrompt", () => {
+  beforeEach(() => {
+    global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns flattened text from messages", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "application/json" },
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              result: {
+                messages: [{ role: "user", content: [{ type: "text", text: "Policy line." }] }],
+              },
+            })
+          ),
+      });
+    const r = await getMcpPrompt("http://localhost:8007/mcp", "policy", {});
+    expect("error" in r).toBe(false);
+    if (!("error" in r)) expect(r.text).toBe("Policy line.");
+  });
+
+  it("sends prompts/get with name and arguments", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, headers: { get: () => null } })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "application/json" },
+        text: () =>
+          Promise.resolve(JSON.stringify({ result: { messages: [{ role: "user", content: "x" }] } })),
+      });
+    await getMcpPrompt("http://localhost:8007/mcp", "my_prompt", { a: "1" });
+    const getCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => typeof c[1]?.body === "string" && (c[1].body as string).includes("prompts/get")
+    );
+    expect(getCall).toBeDefined();
+    const body = JSON.parse((getCall![1] as { body: string }).body);
+    expect(body.method).toBe("prompts/get");
+    expect(body.params.name).toBe("my_prompt");
+    expect(body.params.arguments).toEqual({ a: "1" });
   });
 });

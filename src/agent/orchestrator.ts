@@ -198,29 +198,28 @@ export async function orchestrateStreamingAgent(
   let activeTools = input.tools;
   let activeToolMap = new Map(input.toolToServer);
 
-  if (sub?.enablePlan && sub.runPlanSubtask) {
+  if (sub?.enablePlan || (sub?.enableToolRelevance && sub.runToolRelevanceSubtask && input.tools.length > 0)) {
     metrics.lastPhase = "plan";
-    const pr = await sub.runPlanSubtask(userMessage);
-    if ("error" in pr) {
-      /* план не обязателен — продолжаем без блока */
-    } else if (pr.text.trim() !== "") {
-      effectiveSystem = `${input.systemPrompt}\n\n[SUB-PLAN — guidance for tool rounds]\n${pr.text.trim()}\n[/SUB-PLAN]`;
+    const catalog =
+      sub?.enableToolRelevance && sub.runToolRelevanceSubtask && input.tools.length > 0
+        ? buildEnrichedToolCatalogMarkdown(input.tools, input.toolToServer)
+        : "";
+    const [planResult, relResult] = await Promise.all([
+      sub?.enablePlan && sub.runPlanSubtask
+        ? sub.runPlanSubtask(userMessage)
+        : Promise.resolve(null),
+      catalog && sub?.runToolRelevanceSubtask
+        ? sub.runToolRelevanceSubtask(userMessage, catalog)
+        : Promise.resolve(null)
+    ]);
+    if (planResult && !("error" in planResult) && planResult.text.trim() !== "") {
+      effectiveSystem = `${input.systemPrompt}\n\n[SUB-PLAN — guidance for tool rounds]\n${planResult.text.trim()}\n[/SUB-PLAN]`;
       metrics.subtasks.planExecuted = true;
     }
-  }
-
-  if (
-    sub?.enableToolRelevance &&
-    sub.runToolRelevanceSubtask &&
-    input.tools.length > 0
-  ) {
-    metrics.lastPhase = "plan";
-    const catalog = buildEnrichedToolCatalogMarkdown(input.tools, input.toolToServer);
-    const rel = await sub.runToolRelevanceSubtask(userMessage, catalog);
-    if (!("error" in rel) && rel.text.trim() !== "") {
-      effectiveSystem = `${effectiveSystem}\n\n[TOOL_RELEVANCE — match tools to this request first]\n${rel.text.trim()}\n[/TOOL_RELEVANCE]`;
+    if (relResult && !("error" in relResult) && relResult.text.trim() !== "") {
+      effectiveSystem = `${effectiveSystem}\n\n[TOOL_RELEVANCE — match tools to this request first]\n${relResult.text.trim()}\n[/TOOL_RELEVANCE]`;
       if (deps.narrowToolsToRelevance !== false) {
-        const plan = parseToolRelevancePlan(rel.text);
+        const plan = parseToolRelevancePlan(relResult.text);
         if (plan.mode === "narrow") {
           const narrowed = narrowToolsByRelevancePlan(activeTools, activeToolMap, plan);
           activeTools = narrowed.tools;
@@ -437,27 +436,28 @@ export async function orchestrateSyncAgent(
   let activeTools = input.tools;
   let activeToolMap = new Map(input.toolToServer);
 
-  if (sub?.enablePlan && sub.runPlanSubtask) {
+  if (sub?.enablePlan || (sub?.enableToolRelevance && sub.runToolRelevanceSubtask && input.tools.length > 0)) {
     metrics.lastPhase = "plan";
-    const pr = await sub.runPlanSubtask(userMessage);
-    if (!("error" in pr) && pr.text.trim() !== "") {
-      effectiveSystem = `${input.systemPrompt}\n\n[SUB-PLAN — guidance for tool rounds]\n${pr.text.trim()}\n[/SUB-PLAN]`;
+    const catalogSync =
+      sub?.enableToolRelevance && sub.runToolRelevanceSubtask && input.tools.length > 0
+        ? buildEnrichedToolCatalogMarkdown(input.tools, input.toolToServer)
+        : "";
+    const [planResultS, relResultS] = await Promise.all([
+      sub?.enablePlan && sub.runPlanSubtask
+        ? sub.runPlanSubtask(userMessage)
+        : Promise.resolve(null),
+      catalogSync && sub?.runToolRelevanceSubtask
+        ? sub.runToolRelevanceSubtask(userMessage, catalogSync)
+        : Promise.resolve(null)
+    ]);
+    if (planResultS && !("error" in planResultS) && planResultS.text.trim() !== "") {
+      effectiveSystem = `${input.systemPrompt}\n\n[SUB-PLAN — guidance for tool rounds]\n${planResultS.text.trim()}\n[/SUB-PLAN]`;
       metrics.subtasks.planExecuted = true;
     }
-  }
-
-  if (
-    sub?.enableToolRelevance &&
-    sub.runToolRelevanceSubtask &&
-    input.tools.length > 0
-  ) {
-    metrics.lastPhase = "plan";
-    const catalogSync = buildEnrichedToolCatalogMarkdown(input.tools, input.toolToServer);
-    const relS = await sub.runToolRelevanceSubtask(userMessage, catalogSync);
-    if (!("error" in relS) && relS.text.trim() !== "") {
-      effectiveSystem = `${effectiveSystem}\n\n[TOOL_RELEVANCE — match tools to this request first]\n${relS.text.trim()}\n[/TOOL_RELEVANCE]`;
+    if (relResultS && !("error" in relResultS) && relResultS.text.trim() !== "") {
+      effectiveSystem = `${effectiveSystem}\n\n[TOOL_RELEVANCE — match tools to this request first]\n${relResultS.text.trim()}\n[/TOOL_RELEVANCE]`;
       if (deps.narrowToolsToRelevance !== false) {
-        const planS = parseToolRelevancePlan(relS.text);
+        const planS = parseToolRelevancePlan(relResultS.text);
         if (planS.mode === "narrow") {
           const narrowedS = narrowToolsByRelevancePlan(activeTools, activeToolMap, planS);
           activeTools = narrowedS.tools;

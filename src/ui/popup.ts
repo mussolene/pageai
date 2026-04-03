@@ -46,6 +46,7 @@ const pendingToolExecById = new Map<string, HTMLElement>();
 let streamingBuffer = "";
 let streamingReasoningSteps: ReasoningStep[] = [];
 let streamPort: chrome.runtime.Port | null = null;
+let isSending = false;
 
 async function updatePlayStopButton(streaming: boolean): Promise<void> {
   sendButton.classList.toggle("is-streaming", streaming);
@@ -113,9 +114,9 @@ async function buildReasoningStepElement(step: ReasoningStep): Promise<HTMLEleme
     toolBlock.className = "thinking-block tool-call-block";
     toolBlock.open = false;
     const callTitle =
-      step.serverName != null && step.serverName !== ""
-        ? `${step.serverName}.${step.name}`
-        : step.name;
+      step.serverName == null || step.serverName === "" || step.serverName === "builtin"
+        ? step.name
+        : `${step.serverName}.${step.name}`;
     const summary = document.createElement("summary");
     summary.textContent = `${toolCallLabel}: ${callTitle}`;
     const inner = document.createElement("div");
@@ -230,13 +231,16 @@ async function renderMessages() {
       streamingAnswerEl = answerContent;
     } else if (msg.role === "assistant" && (msg.reasoningSteps?.length ?? 0) > 0) {
       const steps = msg.reasoningSteps ?? [];
+      const anchor = document.createElement("div");
+      anchor.className = "streaming-reasoning-anchor";
       for (const step of steps) {
         const stepDiv = document.createElement("div");
         stepDiv.className = "message reasoning-step";
         const stepEl = await buildReasoningStepElement(step);
         stepDiv.appendChild(stepEl);
-        messagesContainer.appendChild(stepDiv);
+        anchor.appendChild(stepDiv);
       }
+      inner.appendChild(anchor);
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
       const contentDiv = document.createElement("div");
@@ -260,12 +264,15 @@ async function renderMessages() {
         inner.appendChild(sourcesContainer);
       }
     } else if (msg.role === "assistant" && msg.thinking != null && msg.thinking !== "") {
+      const anchor = document.createElement("div");
+      anchor.className = "streaming-reasoning-anchor";
       const stepDiv = document.createElement("div");
       stepDiv.className = "message reasoning-step";
       const thinkingStep: ReasoningStep = { type: "thinking", text: msg.thinking };
       const stepEl = await buildReasoningStepElement(thinkingStep);
       stepDiv.appendChild(stepEl);
-      messagesContainer.appendChild(stepDiv);
+      anchor.appendChild(stepDiv);
+      inner.appendChild(anchor);
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
       const contentDiv = document.createElement("div");
@@ -349,9 +356,10 @@ async function clearChat(): Promise<void> {
 }
 
 async function handleSendMessage() {
-  if (streamPort) return;
+  if (streamPort || isSending) return;
   const text = chatInput.value.trim();
   if (!text) return;
+  isSending = true;
   await updatePlayStopButton(true);
 
   const userMessage: ChatMessage = {
@@ -391,6 +399,8 @@ async function handleSendMessage() {
       return;
     }
     if (m.type === "tool_exec" && m.phase === "start" && m.toolCallId && m.name) {
+      const toolCallId = m.toolCallId;
+      const toolName = m.name;
       void (async () => {
         const toolCallLabel = await translate("chat.toolCall");
         if (streamingAssistantIndex === null) {
@@ -406,12 +416,12 @@ async function handleSendMessage() {
         if (!streamingReasoningAnchorEl) return;
         const wrap = document.createElement("div");
         wrap.className = "message reasoning-step tool-exec-pending";
-        wrap.dataset.toolCallId = m.toolCallId;
+        wrap.dataset.toolCallId = toolCallId;
         const details = document.createElement("details");
         details.className = "thinking-block tool-call-block tool-exec-running";
         details.open = true;
         const summary = document.createElement("summary");
-        summary.textContent = `${toolCallLabel}: ${m.name}`;
+        summary.textContent = `${toolCallLabel}: ${toolName}`;
         const inner = document.createElement("div");
         inner.className = "thinking-content tool-exec-status";
         inner.setAttribute("aria-busy", "true");
@@ -419,7 +429,7 @@ async function handleSendMessage() {
         details.appendChild(inner);
         wrap.appendChild(details);
         streamingReasoningAnchorEl.appendChild(wrap);
-        pendingToolExecById.set(m.toolCallId, wrap);
+        pendingToolExecById.set(toolCallId, wrap);
         if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
       })();
       return;
@@ -519,6 +529,7 @@ async function handleSendMessage() {
       streamingAnswerEl = null;
       streamingReasoningAnchorEl = null;
       streamPort = null;
+      isSending = false;
       pendingToolExecById.clear();
       void updatePlayStopButton(false);
       try {
@@ -549,6 +560,7 @@ async function handleSendMessage() {
       streamingBuffer = "";
       streamingReasoningSteps = [];
       streamPort = null;
+      isSending = false;
       void updatePlayStopButton(false);
       void renderMessages();
     }
@@ -569,6 +581,7 @@ async function handleSendMessage() {
       void renderMessages();
     }
     streamPort = null;
+    isSending = false;
     void updatePlayStopButton(false);
   });
   try {
@@ -596,6 +609,7 @@ async function handleSendMessage() {
     streamingBuffer = "";
     streamingReasoningSteps = [];
     streamPort = null;
+    isSending = false;
     void updatePlayStopButton(false);
     void renderMessages();
   }

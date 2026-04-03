@@ -7,6 +7,11 @@
 const MCP_ACCEPT = "application/json, text/event-stream";
 const MCP_PROTOCOL_VERSION = "2025-03-26";
 
+/** Declared on initialize for prompts/list + prompts/get (servers without prompts ignore). */
+const MCP_CLIENT_CAPABILITIES_WITH_PROMPTS: Record<string, Record<string, unknown>> = {
+  prompts: {}
+};
+
 function buildMcpHeaders(userHeaders?: Record<string, string>): HeadersInit {
   return {
     "Content-Type": "application/json",
@@ -194,6 +199,251 @@ export async function listMcpTools(
     }
     const tools = Array.isArray(data.result?.tools) ? data.result.tools : [];
     return { tools };
+  } catch (e) {
+    clearTimeout(timeout);
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: msg.includes("abort") ? "Request timeout" : msg };
+  }
+}
+
+export interface McpPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface McpPromptInfo {
+  name: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+}
+
+function isPromptsMethodUnsupported(
+  httpOk: boolean,
+  httpStatus: number,
+  rpcError?: { code?: number; message?: string }
+): boolean {
+  if (!httpOk && (httpStatus === 404 || httpStatus === 405 || httpStatus === 501)) return true;
+  if (rpcError?.code === -32601) return true;
+  const msg = (rpcError?.message ?? "").toLowerCase();
+  if (msg.includes("method not found")) return true;
+  if (msg.includes("unknown method")) return true;
+  return false;
+}
+
+/**
+ * Call MCP server: initialize (with prompts capability) then prompts/list.
+ * If the server does not implement prompts, returns an empty list (no error).
+ */
+export async function listMcpPrompts(
+  serverUrl: string,
+  options?: McpConnectionOptions
+): Promise<{ prompts: McpPromptInfo[] } | { error: string }> {
+  const url = serverUrl.trim();
+  if (!url) return { error: "MCP server URL is empty" };
+  const headers = buildMcpHeaders(options?.headers);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const initRes = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: MCP_CLIENT_CAPABILITIES_WITH_PROMPTS,
+          clientInfo: { name: "page-ai", version: "0.1.0" }
+        }
+      }),
+      signal: controller.signal
+    });
+    if (!initRes.ok) {
+      return { error: `Initialize: ${initRes.status} ${initRes.statusText}` };
+    }
+    const sessionId = initRes.headers.get("mcp-session-id");
+    const sessionHeaders: HeadersInit = sessionId ? { ...headers, "MCP-Session-Id": sessionId } : headers;
+    await fetch(url, {
+      method: "POST",
+      headers: sessionHeaders,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
+      signal: controller.signal
+    });
+    const listRes = await fetch(url, {
+      method: "POST",
+      headers: sessionHeaders,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "prompts/list",
+        params: {}
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!listRes.ok) {
+      if (isPromptsMethodUnsupported(false, listRes.status)) return { prompts: [] };
+      return { error: `prompts/list: ${listRes.status} ${listRes.statusText}` };
+    }
+    const parsed = await parseMcpResponse(listRes);
+    const data = parsed as {
+      result?: { prompts?: McpPromptInfo[] };
+      error?: { code?: number; message?: string };
+    } | null;
+    if (!data) {
+      return { error: "Server did not return valid JSON" };
+    }
+    if (data.error) {
+      if (isPromptsMethodUnsupported(true, listRes.status, data.error)) return { prompts: [] };
+      return { error: data.error.message ?? "prompts/list failed" };
+    }
+    const prompts = Array.isArray(data.result?.prompts) ? data.result.prompts : [];
+    const normalized: McpPromptInfo[] = prompts
+      .filter((p): p is McpPromptInfo => p && typeof p === "object" && typeof p.name === "string" && p.name.trim() !== "")
+      .map((p) => {
+        const rawArgs = Array.isArray(p.arguments) ? p.arguments : undefined;
+        const arguments_ =
+          rawArgs
+            ?.filter(
+              (a): a is McpPromptArgument =>
+                Boolean(a && typeof a === "object" && typeof (a as { name?: string }).name === "string" && String((a as { name: string }).name).trim() !== "")
+            )
+            .map((a) => {
+              const o = a as { name: string; description?: string; required?: boolean };
+              return {
+                name: o.name.trim(),
+                description: typeof o.description === "string" ? o.description : undefined,
+                required: typeof o.required === "boolean" ? o.required : undefined
+              };
+            }) ?? undefined;
+        return {
+          name: p.name.trim(),
+          description: typeof p.description === "string" ? p.description : undefined,
+          arguments: arguments_ && arguments_.length > 0 ? arguments_ : undefined
+        };
+      });
+    return { prompts: normalized };
+  } catch (e) {
+    clearTimeout(timeout);
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: msg.includes("abort") ? "Request timeout" : msg };
+  }
+}
+
+/** One content part inside a prompt message (MCP text / resource). */
+function mcpPromptPartToText(part: unknown): string {
+  if (typeof part === "string") return part;
+  if (!part || typeof part !== "object") return "";
+  const o = part as { type?: string; text?: string };
+  if (o.type === "text" && typeof o.text === "string") return o.text;
+  return "";
+}
+
+/**
+ * Convert prompts/get `messages[].content` to a single plain string for the system prompt.
+ * Exported for unit tests.
+ */
+export function mcpPromptMessagesToPlainText(messages: unknown): string {
+  if (!Array.isArray(messages)) return "";
+  const chunks: string[] = [];
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") continue;
+    const content = (msg as { content?: unknown }).content;
+    if (typeof content === "string") {
+      if (content.trim()) chunks.push(content);
+      continue;
+    }
+    if (Array.isArray(content)) {
+      const t = content.map(mcpPromptPartToText).join("");
+      if (t.trim()) chunks.push(t);
+    } else {
+      const t = mcpPromptPartToText(content);
+      if (t.trim()) chunks.push(t);
+    }
+  }
+  return chunks.join("\n\n");
+}
+
+export interface McpPromptGetResult {
+  text: string;
+}
+
+/**
+ * Call MCP prompts/get after initialize + notifications/initialized (same session as listMcpPrompts).
+ */
+export async function getMcpPrompt(
+  serverUrl: string,
+  promptName: string,
+  promptArguments?: Record<string, unknown>,
+  options?: McpConnectionOptions
+): Promise<McpPromptGetResult | { error: string }> {
+  const url = serverUrl.trim();
+  if (!url) return { error: "MCP server URL is empty" };
+  if (!promptName || typeof promptName !== "string" || !promptName.trim()) {
+    return { error: "Prompt name is required" };
+  }
+  const headers = buildMcpHeaders(options?.headers);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  const args = promptArguments && typeof promptArguments === "object" ? promptArguments : {};
+  const getBody = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "prompts/get",
+    params: {
+      name: promptName.trim(),
+      arguments: args
+    }
+  });
+
+  try {
+    const initRes = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: MCP_CLIENT_CAPABILITIES_WITH_PROMPTS,
+          clientInfo: { name: "page-ai", version: "0.1.0" }
+        }
+      }),
+      signal: controller.signal
+    });
+    if (!initRes.ok) {
+      return { error: `Initialize: ${initRes.status} ${initRes.statusText}` };
+    }
+    const sessionId = initRes.headers.get("mcp-session-id");
+    const sessionHeaders: HeadersInit = sessionId ? { ...headers, "MCP-Session-Id": sessionId } : headers;
+    await fetch(url, {
+      method: "POST",
+      headers: sessionHeaders,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
+      signal: controller.signal
+    });
+    const getRes = await fetch(url, {
+      method: "POST",
+      headers: sessionHeaders,
+      body: getBody,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!getRes.ok) {
+      return { error: `prompts/get: ${getRes.status} ${getRes.statusText}` };
+    }
+    const parsed = await parseMcpResponse(getRes);
+    const data = parsed as {
+      result?: { messages?: unknown; description?: string };
+      error?: { message?: string };
+    } | null;
+    if (!data) return { error: "Server did not return valid JSON" };
+    if (data.error?.message) return { error: data.error.message };
+    const text = mcpPromptMessagesToPlainText(data.result?.messages);
+    return { text };
   } catch (e) {
     clearTimeout(timeout);
     const msg = e instanceof Error ? e.message : String(e);

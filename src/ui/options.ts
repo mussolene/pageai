@@ -28,6 +28,7 @@ const llmStatus = document.getElementById("llm-status") as HTMLSpanElement | nul
 const mcpServersConfigInput = document.getElementById("mcp-servers-config") as HTMLTextAreaElement | null;
 const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivElement | null;
 const mcpStatus = document.getElementById("mcp-status") as HTMLSpanElement | null;
+const mcpAgentPromptsEnabledEl = document.getElementById("mcp-agent-prompts-enabled") as HTMLInputElement | null;
 const browserAutomationCheckbox = document.getElementById("browser-automation-enabled") as HTMLInputElement | null;
 const agentRulesInput = document.getElementById("agent-rules") as HTMLTextAreaElement | null;
 const agentSkillsInput = document.getElementById("agent-skills") as HTMLTextAreaElement | null;
@@ -358,6 +359,8 @@ async function updateUI() {
   const mcpLabel = document.querySelector('#section-mcp .settings-row-label');
   if (mcpLabel) mcpLabel.textContent = await translate("settings.mcpServersConfig");
   if (mcpServersConfigInput) mcpServersConfigInput.placeholder = await translate("settings.mcpServersConfigPlaceholder");
+  const labelMcpAgentPrompts = document.getElementById("label-mcp-agent-prompts");
+  if (labelMcpAgentPrompts) labelMcpAgentPrompts.textContent = await translate("settings.mcpAgentPromptsEnabled");
 
   const navLlm = document.getElementById("nav-llm");
   const navBrowser = document.getElementById("nav-browser");
@@ -387,6 +390,10 @@ function wireEvents() {
 
   browserAutomationCheckbox?.addEventListener("change", () => {
     chrome.storage.sync.set({ browserAutomationEnabled: browserAutomationCheckbox.checked });
+  });
+
+  mcpAgentPromptsEnabledEl?.addEventListener("change", () => {
+    chrome.storage.sync.set({ mcpAgentPromptsEnabled: mcpAgentPromptsEnabledEl.checked === true });
   });
 
   mcpServersConfigInput?.addEventListener("input", () => {
@@ -469,7 +476,8 @@ function loadMcp() {
       mcpServersConfig: "",
       mcpServerUrl: "",
       mcpHeaders: "",
-      mcpServersEnabled: {} as Record<string, boolean>
+      mcpServersEnabled: {} as Record<string, boolean>,
+      mcpAgentPromptsEnabled: false
     },
     (items) => {
       if (!mcpServersConfigInput) return;
@@ -494,6 +502,7 @@ function loadMcp() {
       }
       mcpServersConfigInput.value = config || getDefaultMcpServersConfig();
       void renderMcpServersList(items.mcpServersEnabled || {}, mcpServersConfigInput.value);
+      if (mcpAgentPromptsEnabledEl) mcpAgentPromptsEnabledEl.checked = Boolean(items.mcpAgentPromptsEnabled);
     }
   );
 }

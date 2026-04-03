@@ -17,6 +17,7 @@
 | Нет unit-тестов для page-extractor | src/content/page-extractor.ts | Тесты в jsdom или вынести чистые функции (extractPageId) |
 | Нет unit-тестов для keyword search | src/search/keyword.ts | Чистые функции — добавить keyword.test.ts |
 | Дублирование panel.ts / popup.ts | src/ui/ | Вынести общую логику в shared модуль |
+| Отдельный MCP handshake на каждый `listMcpTools` / `listMcpPrompts` / `getMcpPrompt` | src/mcp/client.ts, agent-prompts | Один `initialize` на сервер и одна сессия на запрос для tools + prompts (см. docs/MCP_AND_AGENTS.md) |
 | Линтер не настроен | package.json lint script | Добавить ESLint + Prettier |
 
 ## Низкий

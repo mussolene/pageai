@@ -54,6 +54,9 @@
   - Конфиг MCP-серверов (JSON в настройках popup/panel/options).
   - Проверка подключения: `checkMcpConnection(url)` — отправка `initialize` на сервер.
   - Список инструментов: `listMcpTools(url)` — `initialize` + `tools/list`, отображение в UI (вкл/выкл серверов).
+  - **Промпты MCP (опционально):** `listMcpPrompts(url)` → `prompts/list`, `getMcpPrompt(url, name, arguments)` → `prompts/get`; при `initialize` для этих вызовов в capabilities передаётся `prompts: {}`. Если метод не поддерживается (404 / `-32601` / «Method not found» для списка), возвращается пустой список без падения чата.
+  - Агрегатор `getMcpAgentPromptsForAgent()` в `src/mcp/agent-prompts.ts`: при включённом флаге `mcpAgentPromptsEnabled` в `chrome.storage.sync` (по умолчанию выключен) для каждого **включённого** URL-сервера выполняется загрузка промптов; тексты вставляются в системный промпт блоками `[MCP_PROMPTS — <имя сервера>] … [/MCP_PROMPTS]`. Лимиты: число промптов на сервер, символов на сервер и глобально (значения по умолчанию в коде; опционально переопределяются ключами `mcpAgentPromptsMaxPerServer`, `mcpAgentPromptsMaxChars`, `mcpAgentPromptsMaxCharsPerServer` в sync). Обрезка с суффиксом `[truncated]`. Ошибки загрузки попадают в `mcpLoaded.loadErrors` с префиксом ключа `prompts:`.
+  - Порядок в system prompt: базовый текст → `[RULES]` → `[SKILLS]` → **блоки MCP_PROMPTS** → `[BROWSER TOOLS]` / `[MCP TOOLS]` / `[INTENT]` (как и раньше формирует `buildSystemPromptWithToolStatus`). Подзадачи оркестратора (plan / tool relevance / verify) получают тот же фрагмент «база + правила + навыки + MCP_PROMPTS» в хвосте своего системного промпта (`agentContextForSubtasks` в `loadAgentToolsAndPrompt`).
 - **Реализовано полностью (интеграция агента с MCP):**
   - Вызов инструмента: `callMcpTool(serverUrl, toolName, args?, options?)` в `src/mcp/client.ts`.
   - Загрузка инструментов из настроек: `getEnabledMcpToolsWithMap()` в `src/mcp/agent-tools.ts` — читает `mcpServersConfig` и `mcpServersEnabled` из storage, для каждого включённого сервера вызывает `listMcpTools`, возвращает массив инструментов в формате OpenAI и карту «имя инструмента → сервер (url, headers)».
@@ -107,7 +110,7 @@
 - **Rules** — текстовое поле: правила для агента (например, «отвечать кратко», «учитывать контекст страницы»). Сохраняются в `chrome.storage.sync` (`agentRules`).
 - **Skills** — текстовое поле: описание возможностей (например, «умею кликать по странице, заполнять формы, вызывать MCP»). Сохраняются в `chrome.storage.sync` (`agentSkills`).
 
-При сборке системного промпта background подставляет эти блоки в порядке: базовый промпт → `[RULES]` → `[SKILLS]` → `[BROWSER TOOLS]` / `[MCP TOOLS]` → `[INTENT]`. Агент получает единый контекст: правила, навыки и список инструментов.
+При сборке системного промпта background подставляет эти блоки в порядке: базовый промпт → `[RULES]` → `[SKILLS]` → (если включено в настройках) `[MCP_PROMPTS — …]` от URL-серверов → `[BROWSER TOOLS]` / `[MCP TOOLS]` → `[INTENT]`. Агент получает единый контекст: правила, навыки, опционально политика с MCP-серверов, и список инструментов.
 
 ### Фоновая работа и мультиагентность
 

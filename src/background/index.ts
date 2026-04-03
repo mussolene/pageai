@@ -16,6 +16,7 @@ import {
   type McpToolsLoadResult,
   type ToolServerBinding
 } from "../mcp/agent-tools";
+import { getMcpAgentPromptsForAgent } from "../mcp/agent-prompts";
 import {
   orchestrateStreamingAgent,
   orchestrateSyncAgent,
@@ -37,6 +38,7 @@ import {
   type OrchestratorSyncSettings
 } from "../agent/orchestrator-settings";
 import { createToolContentFinalizer } from "../agent/context-compress";
+import type { OrchestrationMetrics } from "../agent/pipeline";
 import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
 
@@ -201,7 +203,11 @@ function tryPortPost(port: chrome.runtime.Port, msg: object): boolean {
 
 /** Базовый системный промпт для чата (без инструментов). */
 const BASE_CHAT_SYSTEM_PROMPT =
-  "You are a helpful assistant. Answer the user's question concisely.";
+  "You are PageAI, a capable browser assistant built into a Chrome extension. " +
+  "Answer accurately and concisely. Use available tools when they meaningfully improve your answer. " +
+  "Prefer evidence from tools over guessing. " +
+  "When a tool fails, try an alternative approach rather than retrying with identical arguments. " +
+  "Match the user's language in your final answer.";
 
 /** Извлекает размышления и финальный текст из ответа модели (теги <think>...</think>). */
 function parseThinkingFromText(text: string): { text: string; thinking?: string } {
@@ -251,7 +257,7 @@ function buildSystemPromptWithToolStatus(
 
 ${toolsBlock}
 
-[INTENT] Infer from natural language. Read/understand current page → page_read. Click/press/activate on page → page_click. Type/write/fill into a field → page_fill (field: search/comment/поиск/запрос, value: text). Navigate to URL → page_navigate (url). Search the web/look up/find online → web_search (query, optional engine: duckduckgo|google|yandex). Use tool_calls; no exact wording needed.`;
+[INTENT] Infer from natural language: page_read (read/understand page), page_click (click element), page_fill (fill field; args: field, value), page_navigate (navigate; arg: url), web_search (search web; args: query, engine?). Use tool_calls.`;
   }
   if (!hasMcp && loaded.mcpConfigured) {
     const errLines =
@@ -299,10 +305,12 @@ async function buildBaseSystemPromptWithAgentMeta(): Promise<string> {
 async function loadAgentToolsAndPrompt(): Promise<{
   mcpLoaded: McpToolsLoadResult;
   browserTools: OpenAITool[];
+  /** Base prompt + [RULES] + [SKILLS] + optional [MCP_PROMPTS] (no tool-list / INTENT blocks). Passed into orchestrator subtasks. */
+  agentContextForSubtasks: string;
   systemPrompt: string;
   orchestrator: OrchestratorSyncSettings;
 }> {
-  const [settings, mcpLoadedRaw, basePrompt, orchestratorStored] = await Promise.all([
+  const [settings, mcpLoadedRaw, basePrompt, orchestratorStored, mcpPromptsPack] = await Promise.all([
     new Promise<{ browserAutomationEnabled: boolean }>((resolve) => {
       chrome.storage.sync.get({ browserAutomationEnabled: false }, (items) => {
         resolve({
@@ -316,49 +324,76 @@ async function loadAgentToolsAndPrompt(): Promise<{
       chrome.storage.sync.get(ORCHESTRATOR_SYNC_STORAGE_DEFAULTS, (items) => {
         resolve(items as Record<string, unknown>);
       });
-    })
+    }),
+    getMcpAgentPromptsForAgent()
   ]);
 
   const mcpLoaded: McpToolsLoadResult =
     "error" in mcpLoadedRaw
       ? { tools: [], toolToServer: new Map(), mcpConfigured: false, loadErrors: undefined }
       : mcpLoadedRaw;
+  const promptErrs = mcpPromptsPack.loadErrors;
+  if (promptErrs && Object.keys(promptErrs).length > 0) {
+    const merged: Record<string, string> = { ...(mcpLoaded.loadErrors ?? {}) };
+    for (const [k, v] of Object.entries(promptErrs)) {
+      merged[`prompts:${k}`] = v;
+    }
+    mcpLoaded.loadErrors = merged;
+  }
+  const baseWithMcpPrompts =
+    mcpPromptsPack.block.trim() !== "" ? `${basePrompt}\n\n${mcpPromptsPack.block}` : basePrompt;
   const browserTools = getBrowserTools({
     browserAutomationEnabled: settings.browserAutomationEnabled
   });
   const orchestrator = mergeOrchestratorSettings(orchestratorStored);
   const pipelineBlock = appendStandardOrchestratorBlock(
-    buildSystemPromptWithToolStatus(mcpLoaded, browserTools, basePrompt)
+    buildSystemPromptWithToolStatus(mcpLoaded, browserTools, baseWithMcpPrompts)
   );
   const systemPrompt = appendSearchLexiconBlock(pipelineBlock, orchestrator.agentSearchLexicon);
-  return { mcpLoaded, browserTools, systemPrompt, orchestrator };
+  return {
+    mcpLoaded,
+    browserTools,
+    agentContextForSubtasks: baseWithMcpPrompts,
+    systemPrompt,
+    orchestrator
+  };
+}
+
+function subtaskSystemWithShared(taskPrompt: string, sharedAgentContext: string): string {
+  const ctx = sharedAgentContext.trim();
+  if (!ctx) return taskPrompt;
+  return `${taskPrompt}\n\n---\n\n[Shared agent context — apply these rules and MCP prompt blocks here too]\n${ctx}`;
 }
 
 /** План, релевантность tools, verify — отдельные короткие вызовы LLM без tools. */
 function createDefaultOrchestratorSubtasks(
   orchestrator: OrchestratorSyncSettings,
   signal: AbortSignal | undefined,
-  toolCatalog: string
+  toolCatalog: string,
+  sharedAgentContext: string
 ): OrchestratorSubtaskHooks {
   const cat = toolCatalog.trim();
+  const planSys = subtaskSystemWithShared(SUBTASK_PLAN_SYSTEM, sharedAgentContext);
+  const relSys = subtaskSystemWithShared(SUBTASK_TOOL_RELEVANCE_SYSTEM, sharedAgentContext);
+  const verSys = subtaskSystemWithShared(SUBTASK_VERIFY_SYSTEM, sharedAgentContext);
   return {
     enablePlan: orchestrator.orchestratorPlanEnabled,
     enableVerify: orchestrator.orchestratorVerifyEnabled,
     enableToolRelevance: orchestrator.orchestratorToolRelevanceEnabled && cat.length > 0,
     runPlanSubtask: (userMessage: string) =>
-      chatWithLLMSubtask(userMessage, { systemPrompt: SUBTASK_PLAN_SYSTEM, signal }),
+      chatWithLLMSubtask(userMessage, { systemPrompt: planSys, signal }),
     runToolRelevanceSubtask:
       cat.length > 0
         ? (userMessage: string, catalog: string) =>
             chatWithLLMSubtask(
               `User request:\n${userMessage}\n\nAvailable tools:\n${catalog}`,
-              { systemPrompt: SUBTASK_TOOL_RELEVANCE_SYSTEM, maxTokens: 512, temperature: 0.25, signal }
+              { systemPrompt: relSys, maxTokens: 512, temperature: 0.25, signal }
             )
         : undefined,
     runVerifySubtask: ({ userGoal, toolResultsSummary }) =>
       chatWithLLMSubtask(
         `User request:\n${userGoal}\n\nTool outputs (summary):\n${toolResultsSummary}`,
-        { systemPrompt: SUBTASK_VERIFY_SYSTEM, maxTokens: 256, temperature: 0.2, signal }
+        { systemPrompt: verSys, maxTokens: 256, temperature: 0.2, signal }
       )
   };
 }
@@ -411,6 +446,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = await runMcpDiagnose();
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -424,7 +460,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = "No active tab. Open the page you want to read, then try again.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "page",
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -446,7 +482,7 @@ async function executeToolCallsAndAppendMessages(
             "Could not read this page. Wait for it to load fully and try again.";
           await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
             name: tc.name,
-            serverName: "page",
+            serverName: "builtin",
             args: argsStr
           });
           continue;
@@ -456,7 +492,7 @@ async function executeToolCallsAndAppendMessages(
           const raw = `Title: ${page.title}\nURL: ${page.url}\n\n${page.contentText ?? ""}`;
           await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
             name: tc.name,
-            serverName: "page",
+            serverName: "builtin",
             args: argsStr
           });
         } else {
@@ -468,14 +504,14 @@ async function executeToolCallsAndAppendMessages(
             const raw = summary.error ?? "Failed to summarize page.";
             await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
               name: tc.name,
-              serverName: "page",
+              serverName: "builtin",
               args: argsStr
             });
           } else {
             const raw = summary.text ?? "No summary produced for this page.";
             await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
               name: tc.name,
-              serverName: "page",
+              serverName: "builtin",
               args: argsStr
             });
           }
@@ -486,7 +522,7 @@ async function executeToolCallsAndAppendMessages(
           "Failed to read current page.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "page",
+          serverName: "builtin",
           args: argsStr
         });
       }
@@ -513,7 +549,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = "No active tab. Open the page where you want to click, then try again.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "page",
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -538,7 +574,7 @@ async function executeToolCallsAndAppendMessages(
         raw,
         messages,
         results,
-        { name: tc.name, serverName: "page", args: argsStr }
+        { name: tc.name, serverName: "builtin", args: argsStr }
       );
       pageToolResultByKey.set(key, content);
       continue;
@@ -564,7 +600,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = "No active tab. Open the page where you want to fill the field, then try again.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "page",
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -592,7 +628,7 @@ async function executeToolCallsAndAppendMessages(
         raw,
         messages,
         results,
-        { name: tc.name, serverName: "page", args: argsStr }
+        { name: tc.name, serverName: "builtin", args: argsStr }
       );
       pageToolResultByKey.set(key, content);
       continue;
@@ -609,7 +645,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = "Missing url for page_navigate.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "page",
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -622,7 +658,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = "No active tab. Open a tab where you want to navigate and try again.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "page",
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -650,7 +686,7 @@ async function executeToolCallsAndAppendMessages(
       const raw = response.ok ? (response.message ?? "Navigated") : (response.error ?? "Failed");
       await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
         name: tc.name,
-        serverName: "page",
+        serverName: "builtin",
         args: argsStr
       });
       continue;
@@ -667,7 +703,7 @@ async function executeToolCallsAndAppendMessages(
         const raw = "Missing search query.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "web",
+          serverName: "builtin",
           args: argsStr
         });
         continue;
@@ -680,14 +716,14 @@ async function executeToolCallsAndAppendMessages(
         const raw = `Opened search in new tab (${engineKey}).`;
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "web",
+          serverName: "builtin",
           args: argsStr
         });
       } catch (err) {
         const raw = (err instanceof Error ? err.message : String(err)) || "Failed to open tab.";
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
-          serverName: "web",
+          serverName: "builtin",
           args: argsStr
         });
       }
@@ -737,12 +773,13 @@ async function runAgentStreamWithMcpTools(
     mcpLoaded: McpToolsLoadResult;
     browserTools: OpenAITool[];
     systemPrompt: string;
+    agentContextForSubtasks: string;
     orchestrator: OrchestratorSyncSettings;
   },
   port: chrome.runtime.Port,
   signal?: AbortSignal
-): Promise<{ text: string; reasoningSteps: ReasoningStep[] } | { error: string }> {
-  const { mcpLoaded: loaded, browserTools, systemPrompt, orchestrator } = toolsContext;
+): Promise<{ text: string; reasoningSteps: ReasoningStep[]; metrics?: OrchestrationMetrics } | { error: string }> {
+  const { mcpLoaded: loaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator } = toolsContext;
   const finalizeToolContent = createToolContentFinalizer(orchestrator, signal);
   let { tools, toolToServer } = loaded;
   if (tools.length === 0 && loaded.mcpConfigured) {
@@ -803,7 +840,12 @@ async function runAgentStreamWithMcpTools(
       onToolRoundComplete: (steps) => {
         safePortPost(port, { type: "reasoning_step", steps });
       },
-      subtasks: createDefaultOrchestratorSubtasks(orchestrator, signal, toolCatalogMarkdown)
+      subtasks: createDefaultOrchestratorSubtasks(
+        orchestrator,
+        signal,
+        toolCatalogMarkdown,
+        agentContextForSubtasks
+      )
     }
   );
 }
@@ -817,10 +859,11 @@ async function runAgentWithMcpTools(
     mcpLoaded: McpToolsLoadResult;
     browserTools: OpenAITool[];
     systemPrompt: string;
+    agentContextForSubtasks: string;
     orchestrator: OrchestratorSyncSettings;
   }
 ): Promise<{ text: string } | { error: string }> {
-  const { mcpLoaded: loaded, browserTools, systemPrompt, orchestrator } = toolsContext;
+  const { mcpLoaded: loaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator } = toolsContext;
   const finalizeToolContent = createToolContentFinalizer(orchestrator);
   let { tools, toolToServer } = loaded;
   if (tools.length === 0 && loaded.mcpConfigured) {
@@ -860,7 +903,12 @@ async function runAgentWithMcpTools(
         }),
       executeTools: (calls, map, msgs) =>
         executeToolCallsAndAppendMessages(calls, map, msgs, finalizeToolContent),
-      subtasks: createDefaultOrchestratorSubtasks(orchestrator, undefined, toolCatalogMarkdownSync)
+      subtasks: createDefaultOrchestratorSubtasks(
+        orchestrator,
+        undefined,
+        toolCatalogMarkdownSync,
+        agentContextForSubtasks
+      )
     }
   );
 }
@@ -970,13 +1018,14 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
       sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
     }
 
-    const { mcpLoaded, browserTools, systemPrompt, orchestrator } = await loadAgentToolsAndPrompt();
+    const { mcpLoaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator } =
+      await loadAgentToolsAndPrompt();
     const hasAnyTools = mcpLoaded.tools.length > 0 || browserTools.length > 0;
 
     if (hasAnyTools) {
       const result = await runAgentStreamWithMcpTools(
         userMessage,
-        { mcpLoaded, browserTools, systemPrompt, orchestrator },
+        { mcpLoaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator },
         port,
         abortController.signal
       );
@@ -990,7 +1039,7 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
         timestamp: new Date().toISOString(),
         ...(result.reasoningSteps.length > 0 ? { reasoningSteps: result.reasoningSteps } : {}),
         ...(sourcesForDone ? { sources: sourcesForDone } : {}),
-        orchestrationMetrics: result.metrics
+        ...(result.metrics != null ? { orchestrationMetrics: result.metrics } : {})
       };
       const sentMcp = tryPortPost(port, { type: "done", message: doneMessage });
       if (!sentMcp) {
@@ -1093,11 +1142,18 @@ chrome.runtime.onMessage.addListener((message: MessageFromContent | MessageFromP
       try {
         // Парсим текущую страницу только если в вопросе явно просят про неё
         if (!isQuestionAboutCurrentPage(queryText)) {
-          const { mcpLoaded, browserTools, systemPrompt, orchestrator } = await loadAgentToolsAndPrompt();
+          const { mcpLoaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator } =
+            await loadAgentToolsAndPrompt();
           const hasAnyTools = mcpLoaded.tools.length > 0 || browserTools.length > 0;
 
           const result = hasAnyTools
-            ? await runAgentWithMcpTools(queryText, { mcpLoaded, browserTools, systemPrompt, orchestrator })
+            ? await runAgentWithMcpTools(queryText, {
+                mcpLoaded,
+                browserTools,
+                systemPrompt,
+                agentContextForSubtasks,
+                orchestrator
+              })
             : await chatWithLLM([{ role: "user", content: queryText }], { systemPrompt });
 
           if ("error" in result) {
