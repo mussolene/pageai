@@ -25,7 +25,6 @@ const browserAutomationCheckbox = document.getElementById("browser-automation-en
 const themeToggle = document.querySelector(".theme-toggle") as HTMLDivElement | null;
 const themeToggleBtns = (): NodeListOf<HTMLButtonElement> => document.querySelectorAll(".theme-toggle-btn");
 const llmMaxTokensInput = document.getElementById("llm-max-tokens") as HTMLInputElement | null;
-const llmStatus = document.getElementById("llm-status") as HTMLSpanElement;
 const chatModelSelect = document.getElementById("chat-model-select") as HTMLSelectElement | null;
 const mcpServersConfigInput = document.getElementById("mcp-servers-config") as HTMLTextAreaElement | null;
 const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivElement | null;

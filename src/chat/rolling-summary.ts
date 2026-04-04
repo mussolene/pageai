@@ -30,7 +30,7 @@ export async function maybeRefreshRollingChatSummary(
     [CHAT_ROLLING_SUMMARY_KEYS.text]: "",
     [CHAT_ROLLING_SUMMARY_KEYS.covers]: 0
   });
-  let covers = Number(local[CHAT_ROLLING_SUMMARY_KEYS.covers]) || 0;
+  const covers = Number(local[CHAT_ROLLING_SUMMARY_KEYS.covers]) || 0;
   const prevSummary = String(local[CHAT_ROLLING_SUMMARY_KEYS.text] ?? "");
 
   if (covers > history.length) {

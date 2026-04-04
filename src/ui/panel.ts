@@ -33,7 +33,6 @@ const llmConfigOpenOptionsBtn = document.getElementById("llm-config-open-options
 const browserAutomationCheckbox = document.getElementById("browser-automation-enabled") as HTMLInputElement | null;
 const themeToggle = document.querySelector(".theme-toggle") as HTMLDivElement | null;
 const themeToggleBtns = (): NodeListOf<HTMLButtonElement> => document.querySelectorAll(".theme-toggle-btn");
-const llmStatus = document.getElementById("llm-status") as HTMLSpanElement;
 const llmMaxTokensInput = document.getElementById("llm-max-tokens") as HTMLInputElement | null;
 const mcpServersConfigInput = document.getElementById("mcp-servers-config") as HTMLTextAreaElement | null;
 const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivElement | null;
@@ -68,6 +67,10 @@ let streamingReasoningSteps: ReasoningStep[] = [];
 let streamPort: chrome.runtime.Port | null = null;
 /** Флаг отправки, чтобы не дублировать сообщение при двойном клике/Enter. */
 let isSending = false;
+/** Защита от параллельных вызовов renderMessages: не давать двум рендерам чистить DOM одновременно. */
+let renderInProgress = false;
+/** Если рендер запросили пока шёл другой — запустим ещё один сразу после завершения. */
+let renderPending = false;
 
 async function updatePlayStopButton(streaming: boolean): Promise<void> {
   sendButton.classList.toggle("is-streaming", streaming);
@@ -199,6 +202,22 @@ function addMessageToChat(message: ChatMessage, options?: { skipSave?: boolean }
 }
 
 async function renderMessages() {
+  if (renderInProgress) {
+    renderPending = true;
+    return;
+  }
+  do {
+    renderPending = false;
+    renderInProgress = true;
+    try {
+      await doRenderMessages();
+    } finally {
+      renderInProgress = false;
+    }
+  } while (renderPending);
+}
+
+async function doRenderMessages() {
   if (!messagesContainer) return;
   messagesContainer.innerHTML = "";
 
@@ -996,7 +1015,7 @@ function renderSearchResultsList(results: SearchResult[]): void {
   if (!searchResults) return;
   searchResults.innerHTML = "";
   const snippetLen = 80;
-  for (const { page, score } of results) {
+  for (const { page } of results) {
     const li = document.createElement("li");
     li.className = "search-result-item";
     const label = document.createElement("label");

@@ -31,7 +31,7 @@ import {
   SUBTASK_TOOL_RELEVANCE_SYSTEM,
   SUBTASK_VERIFY_SYSTEM
 } from "../agent/standards";
-import { buildEnrichedToolCatalogMarkdown, buildToolCatalogMarkdown } from "../agent/tool-catalog";
+import { buildEnrichedToolCatalogMarkdown } from "../agent/tool-catalog";
 import {
   ORCHESTRATOR_SYNC_STORAGE_DEFAULTS,
   mergeOrchestratorSettings,
@@ -1126,7 +1126,6 @@ let activeChatTasks = 0;
 async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
   const { port, queryText, abortController } = task;
   let keepaliveOffscreenOpened = false;
-  let chatPolicy: Awaited<ReturnType<typeof loadChatContextPolicy>> | null = null;
   try {
     keepaliveOffscreenOpened = await openStreamKeepaliveOffscreen();
 
@@ -1155,7 +1154,7 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
       sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
     }
 
-    chatPolicy = await loadChatContextPolicy();
+    const chatPolicy = await loadChatContextPolicy();
     const localRolling = await chrome.storage.local.get({
       [CHAT_ROLLING_SUMMARY_KEYS.text]: "",
       [CHAT_ROLLING_SUMMARY_KEYS.covers]: 0

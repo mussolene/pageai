@@ -131,7 +131,7 @@ export function preshapeToolOutputForContext(
     userGoal: string;
   }
 ): string {
-  let body = raw.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{4,}/g, "\n\n\n");
+  const body = raw.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{4,}/g, "\n\n\n");
   if (!options.enabled || body.length < options.minChars) return body;
 
   const hints = tokenizeQueryHints(options.userGoal);

@@ -153,7 +153,7 @@ function saveConfigFromForm(): void {
   (async () => {
     const { configs, activeId } = await getLlmConfigsAndActive();
     const apiKey = llmConfigApiKeyInput?.value ?? "";
-    let next = [...configs];
+    const next = [...configs];
     let nextActive = activeId;
 
     if (editingConfigId) {
@@ -228,7 +228,7 @@ function fillModelDatalist(models: string[]): void {
 }
 
 function loadLlmConfigs(): void {
-  void getLlmConfigsAndActive().then(({ configs }) => {
+  void getLlmConfigsAndActive().then(() => {
     void loadAndRenderConfigs();
     chrome.storage.sync.get({ lastFetchedModels: [] as string[] }, (items) => {
       fillModelDatalist(items.lastFetchedModels ?? []);
