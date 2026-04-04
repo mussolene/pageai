@@ -27,4 +27,5 @@
 
 - [README](../README.md) — установка и использование.
 - [CONTRIBUTING](../CONTRIBUTING.md) — как запускать lint и тесты.
-- [MCP_AND_AGENTS.md](MCP_AND_AGENTS.md) — настройка MCP.
+- [MCP_AND_AGENTS.md](MCP_AND_AGENTS.md) — MCP и агент в расширении.
+- [SETTINGS.md](SETTINGS.md) — настройки UI и storage.

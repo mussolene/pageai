@@ -37,7 +37,7 @@ chore(deps): update esbuild to 0.27
 2. **Коммиты**: в формате Conventional Commits (см. выше).
 3. **Перед коммитом**: `npm run lint`, `npm test` и `npm run build` должны проходить.
 3. **Секреты**: не коммитить реальные API-токены, пароли, ключи. Использовать `.env` (в .gitignore) и моки в `tests/mocks/`.
-4. **Документация**: архитектурные решения и техдолг — в `docs/` (TECH_DEBT.md, CODE_REVIEW.md). Сессионные отчёты можно хранить в `docs/sessions/`.
+4. **Документация**: архитектура и индекс — `docs/README.md`; настройки расширения — `docs/SETTINGS.md`; техдолг — `docs/TECH_DEBT.md`. Сессионные отчёты — `docs/sessions/` при необходимости.
 
 ## Стандарты кода
 
