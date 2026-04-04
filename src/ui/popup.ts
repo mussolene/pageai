@@ -457,7 +457,8 @@ async function handleSendMessage() {
     if (m.type === "tool_exec" && m.phase === "end" && m.toolCallId) {
       const row = pendingToolExecById.get(m.toolCallId);
       if (row) {
-        row.classList.remove("tool-exec-pending");
+        /* Не снимать tool-exec-pending: reasoning_step удаляет весь узел по этому классу.
+         * Если снять — строка остаётся в DOM и дублирует формальные шаги из reasoning_step. */
         row.querySelector(".tool-exec-running")?.classList.remove("tool-exec-running");
         row.querySelector(".tool-exec-status")?.removeAttribute("aria-busy");
         pendingToolExecById.delete(m.toolCallId);
