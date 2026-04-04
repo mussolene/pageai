@@ -115,15 +115,15 @@ function parseCodeBlock(text: string): string {
 
 /**
  * Parse headings: # H1, ## H2, ### H3
+ * Inline markdown (**bold**, links, …) inside the heading line is supported (same as GitHub-style MD).
  */
 function parseHeadings(text: string): string {
   let result = text;
 
-  // H1–H4 (escape heading text for XSS)
-  result = result.replace(/^# ([^\n]+)/gm, (_, t) => `<h1 class="md-h1">${escapeHtml(t)}</h1>`);
-  result = result.replace(/^## ([^\n]+)/gm, (_, t) => `<h2 class="md-h2">${escapeHtml(t)}</h2>`);
-  result = result.replace(/^### ([^\n]+)/gm, (_, t) => `<h3 class="md-h3">${escapeHtml(t)}</h3>`);
-  result = result.replace(/^#### ([^\n]+)/gm, (_, t) => `<h4 class="md-h4">${escapeHtml(t)}</h4>`);
+  result = result.replace(/^# ([^\n]+)/gm, (_, t) => `<h1 class="md-h1">${parseInlineMarkdown(t)}</h1>`);
+  result = result.replace(/^## ([^\n]+)/gm, (_, t) => `<h2 class="md-h2">${parseInlineMarkdown(t)}</h2>`);
+  result = result.replace(/^### ([^\n]+)/gm, (_, t) => `<h3 class="md-h3">${parseInlineMarkdown(t)}</h3>`);
+  result = result.replace(/^#### ([^\n]+)/gm, (_, t) => `<h4 class="md-h4">${parseInlineMarkdown(t)}</h4>`);
 
   return result;
 }

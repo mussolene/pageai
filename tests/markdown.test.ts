@@ -92,6 +92,16 @@ describe('Markdown Parser', () => {
       expect(result).toContain('<h3 class="md-h3">Section</h3>');
     });
 
+    it('should parse inline bold inside heading line', () => {
+      const result = markdownToHtml(
+        "### 🌕 **Состояние дел на Луне (2024–2025)**"
+      );
+      expect(result).toContain('<h3 class="md-h3">');
+      expect(result).toContain("md-bold");
+      expect(result).toContain("Состояние дел на Луне");
+      expect(result).not.toContain("**Состояние");
+    });
+
     it('should parse h4 heading', () => {
       const result = markdownToHtml('#### Subsection');
       expect(result).toContain('<h4 class="md-h4">Subsection</h4>');
