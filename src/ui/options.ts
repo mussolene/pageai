@@ -11,6 +11,8 @@ import {
   getDefaultMcpServersConfig
 } from "../mcp/client";
 import { translate, getStoredLocale } from "../i18n";
+import { CHAT_CONTEXT_SYNC_DEFAULTS } from "../chat/chat-context-sync";
+import { mergeAgentInstructionsForDisplay, persistUnifiedAgentInstructions } from "../chat/agent-instructions-ui";
 
 const llmConfigChips = document.getElementById("llm-config-chips") as HTMLDivElement | null;
 const llmConfigAddBtn = document.getElementById("llm-config-add") as HTMLButtonElement | null;
@@ -30,10 +32,14 @@ const mcpServersListEl = document.getElementById("mcp-servers-list") as HTMLDivE
 const mcpStatus = document.getElementById("mcp-status") as HTMLSpanElement | null;
 const mcpAgentPromptsEnabledEl = document.getElementById("mcp-agent-prompts-enabled") as HTMLInputElement | null;
 const browserAutomationCheckbox = document.getElementById("browser-automation-enabled") as HTMLInputElement | null;
-const agentRulesInput = document.getElementById("agent-rules") as HTMLTextAreaElement | null;
-const agentSkillsInput = document.getElementById("agent-skills") as HTMLTextAreaElement | null;
-const rulesStatusEl = document.getElementById("rules-status") as HTMLSpanElement | null;
-const skillsStatusEl = document.getElementById("skills-status") as HTMLSpanElement | null;
+const agentInstructionsInput = document.getElementById("agent-instructions") as HTMLTextAreaElement | null;
+const instructionsStatusEl = document.getElementById("instructions-status") as HTMLSpanElement | null;
+const chatContextMaxMessagesEl = document.getElementById("chat-context-max-messages") as HTMLInputElement | null;
+const chatContextMaxCharsEl = document.getElementById("chat-context-max-chars") as HTMLInputElement | null;
+const chatRollingEnabledEl = document.getElementById("chat-rolling-summary-enabled") as HTMLInputElement | null;
+const chatRollingEveryEl = document.getElementById("chat-rolling-summary-every") as HTMLInputElement | null;
+const chatRollingBatchEl = document.getElementById("chat-rolling-summary-batch") as HTMLInputElement | null;
+const chatContextStatusEl = document.getElementById("chat-context-status") as HTMLSpanElement | null;
 const orchestratorPlanEl = document.getElementById("orchestrator-plan-enabled") as HTMLInputElement | null;
 const orchestratorVerifyEl = document.getElementById("orchestrator-verify-enabled") as HTMLInputElement | null;
 const orchestratorToolRelevanceEl = document.getElementById("orchestrator-tool-relevance-enabled") as HTMLInputElement | null;
@@ -349,11 +355,6 @@ async function updateUI() {
   if (title) title.textContent = await translate("options.title");
   if (subtitle) subtitle.textContent = await translate("options.subtitle");
 
-  const llmSummary = document.getElementById("options-llm-summary");
-  const mcpSummary = document.getElementById("options-mcp-summary");
-  if (llmSummary) llmSummary.textContent = "LLM configs";
-  if (mcpSummary) mcpSummary.textContent = await translate("settings.mcpServersConfig");
-
   if (llmConfigAddBtn) llmConfigAddBtn.textContent = "Add";
   if (llmConfigSaveBtn) llmConfigSaveBtn.textContent = "Save";
   if (llmConfigCancelBtn) llmConfigCancelBtn.textContent = "Cancel";
@@ -369,17 +370,58 @@ async function updateUI() {
   if (labelMcpAgentPrompts) labelMcpAgentPrompts.textContent = await translate("settings.mcpAgentPromptsEnabled");
 
   const navLlm = document.getElementById("nav-llm");
+  const navChat = document.getElementById("nav-chat");
   const navBrowser = document.getElementById("nav-browser");
   const navMcp = document.getElementById("nav-mcp");
-  const navRules = document.getElementById("nav-rules");
-  const navSkills = document.getElementById("nav-skills");
-  if (navLlm) navLlm.textContent = "LLM";
-  if (navBrowser) navBrowser.textContent = "Browser";
-  if (navMcp) navMcp.textContent = "MCP";
+  const navInstructions = document.getElementById("nav-instructions");
+  if (navLlm) navLlm.textContent = await translate("settings.navLlm");
+  if (navChat) navChat.textContent = await translate("settings.navChat");
+  if (navBrowser) navBrowser.textContent = await translate("settings.navBrowser");
+  if (navMcp) navMcp.textContent = await translate("settings.navMcp");
   const navAgent = document.getElementById("nav-agent");
-  if (navRules) navRules.textContent = "Rules";
-  if (navSkills) navSkills.textContent = "Skills";
-  if (navAgent) navAgent.textContent = "Agent";
+  if (navAgent) navAgent.textContent = await translate("settings.navAgent");
+  if (navInstructions) navInstructions.textContent = await translate("settings.navInstructions");
+
+  const sectionChatTitle = document.getElementById("section-chat-title");
+  const sectionChatDesc = document.getElementById("section-chat-desc");
+  if (sectionChatTitle) sectionChatTitle.textContent = await translate("settings.sectionChatTitle");
+  if (sectionChatDesc) sectionChatDesc.textContent = await translate("settings.sectionChatDesc");
+
+  const labelRolling = document.getElementById("label-chat-rolling-enabled");
+  if (labelRolling) labelRolling.textContent = await translate("settings.chatRollingSummaryEnabled");
+
+  const sectionAgentTitle = document.getElementById("section-agent-title");
+  const sectionAgentDesc = document.getElementById("section-agent-desc");
+  if (sectionAgentTitle) sectionAgentTitle.textContent = await translate("settings.sectionAgentTitle");
+  if (sectionAgentDesc) sectionAgentDesc.textContent = await translate("settings.sectionAgentDesc");
+
+  const subLoop = document.getElementById("agent-sub-loop");
+  const subTool = document.getElementById("agent-sub-tool");
+  const subSearch = document.getElementById("agent-sub-search");
+  if (subLoop) subLoop.textContent = await translate("settings.agentSubLoop");
+  if (subTool) subTool.textContent = await translate("settings.agentSubTool");
+  if (subSearch) subSearch.textContent = await translate("settings.agentSubSearch");
+
+  const sectionMcpTitle = document.getElementById("section-mcp-title");
+  if (sectionMcpTitle) sectionMcpTitle.textContent = await translate("settings.sectionMcpTitle");
+
+  const sectionInstrTitle = document.getElementById("section-instructions-title");
+  const sectionInstrDesc = document.getElementById("section-instructions-desc");
+  const labelInstr = document.querySelector('label[for="agent-instructions"]');
+  if (sectionInstrTitle) sectionInstrTitle.textContent = await translate("settings.sectionInstructionsTitle");
+  if (sectionInstrDesc) sectionInstrDesc.textContent = await translate("settings.sectionInstructionsDesc");
+  if (labelInstr) labelInstr.textContent = await translate("settings.agentInstructionsLabel");
+
+  const chatLabels = [
+    ["chat-context-max-messages", "settings.chatContextMaxMessages"],
+    ["chat-context-max-chars", "settings.chatContextMaxChars"],
+    ["chat-rolling-summary-every", "settings.chatRollingEvery"],
+    ["chat-rolling-summary-batch", "settings.chatRollingBatch"]
+  ] as const;
+  for (const [id, key] of chatLabels) {
+    const el = document.querySelector(`label[for="${id}"]`);
+    if (el) el.textContent = await translate(key);
+  }
 }
 
 function loadBrowserAutomation() {
@@ -423,37 +465,26 @@ function wireEvents() {
     });
   });
 
-  function showRulesSaved(): void {
-    if (rulesStatusEl) {
-      rulesStatusEl.textContent = "Saved";
-      rulesStatusEl.className = "status success";
-      setTimeout(() => { rulesStatusEl!.textContent = ""; rulesStatusEl!.className = "status"; }, 2000);
+  function showInstructionsSaved(): void {
+    if (instructionsStatusEl) {
+      instructionsStatusEl.textContent = "Saved";
+      instructionsStatusEl.className = "status success";
+      setTimeout(() => {
+        instructionsStatusEl!.textContent = "";
+        instructionsStatusEl!.className = "status";
+      }, 2000);
     }
   }
-  function showSkillsSaved(): void {
-    if (skillsStatusEl) {
-      skillsStatusEl.textContent = "Saved";
-      skillsStatusEl.className = "status success";
-      setTimeout(() => { skillsStatusEl!.textContent = ""; skillsStatusEl!.className = "status"; }, 2000);
-    }
+  function applyPersistUnifiedInstructions(): void {
+    const { agentRules, agentSkills } = persistUnifiedAgentInstructions(agentInstructionsInput?.value ?? "");
+    chrome.storage.sync.set({ agentRules, agentSkills });
+    showInstructionsSaved();
   }
-  agentRulesInput?.addEventListener("input", () => {
-    const v = agentRulesInput.value;
-    chrome.storage.sync.set({ agentRules: v });
-    showRulesSaved();
+  agentInstructionsInput?.addEventListener("input", () => {
+    applyPersistUnifiedInstructions();
   });
-  agentRulesInput?.addEventListener("blur", () => {
-    chrome.storage.sync.set({ agentRules: agentRulesInput?.value ?? "" });
-    showRulesSaved();
-  });
-  agentSkillsInput?.addEventListener("input", () => {
-    const v = agentSkillsInput.value;
-    chrome.storage.sync.set({ agentSkills: v });
-    showSkillsSaved();
-  });
-  agentSkillsInput?.addEventListener("blur", () => {
-    chrome.storage.sync.set({ agentSkills: agentSkillsInput?.value ?? "" });
-    showSkillsSaved();
+  agentInstructionsInput?.addEventListener("blur", () => {
+    applyPersistUnifiedInstructions();
   });
 
   orchestratorPlanEl?.addEventListener("change", persistOrchestratorFromForm);
@@ -478,6 +509,34 @@ function wireEvents() {
     chrome.storage.sync.set({ agentSearchLexicon: agentSearchLexiconEl?.value ?? "" });
     showOrchestratorSaved();
   });
+
+  function showChatContextSaved(): void {
+    if (chatContextStatusEl) {
+      chatContextStatusEl.textContent = "Saved";
+      chatContextStatusEl.className = "status success";
+      setTimeout(() => {
+        chatContextStatusEl!.textContent = "";
+        chatContextStatusEl!.className = "status";
+      }, 1500);
+    }
+  }
+  function persistChatContextFromForm(): void {
+    chrome.storage.sync.set(
+      {
+        chatContextMaxMessages: Number(chatContextMaxMessagesEl?.value ?? 56),
+        chatContextMaxChars: Number(chatContextMaxCharsEl?.value ?? 100_000),
+        chatRollingSummaryEnabled: chatRollingEnabledEl?.checked !== false,
+        chatRollingSummaryEvery: Number(chatRollingEveryEl?.value ?? 16),
+        chatRollingSummaryBatch: Number(chatRollingBatchEl?.value ?? 8)
+      },
+      () => showChatContextSaved()
+    );
+  }
+  chatContextMaxMessagesEl?.addEventListener("change", persistChatContextFromForm);
+  chatContextMaxCharsEl?.addEventListener("change", persistChatContextFromForm);
+  chatRollingEnabledEl?.addEventListener("change", persistChatContextFromForm);
+  chatRollingEveryEl?.addEventListener("change", persistChatContextFromForm);
+  chatRollingBatchEl?.addEventListener("change", persistChatContextFromForm);
 }
 
 function loadMcp() {
@@ -517,10 +576,34 @@ function loadMcp() {
   );
 }
 
-function loadRulesAndSkills(): void {
+function loadAgentInstructions(): void {
   chrome.storage.sync.get({ agentRules: "", agentSkills: "" }, (items) => {
-    if (agentRulesInput) agentRulesInput.value = (items.agentRules as string) ?? "";
-    if (agentSkillsInput) agentSkillsInput.value = (items.agentSkills as string) ?? "";
+    if (agentInstructionsInput) {
+      agentInstructionsInput.value = mergeAgentInstructionsForDisplay(
+        (items.agentRules as string) ?? "",
+        (items.agentSkills as string) ?? ""
+      );
+    }
+  });
+}
+
+function loadChatContextForm(): void {
+  chrome.storage.sync.get(CHAT_CONTEXT_SYNC_DEFAULTS, (items) => {
+    if (chatContextMaxMessagesEl) {
+      chatContextMaxMessagesEl.value = String(items.chatContextMaxMessages ?? 56);
+    }
+    if (chatContextMaxCharsEl) {
+      chatContextMaxCharsEl.value = String(items.chatContextMaxChars ?? 100_000);
+    }
+    if (chatRollingEnabledEl) {
+      chatRollingEnabledEl.checked = items.chatRollingSummaryEnabled !== false;
+    }
+    if (chatRollingEveryEl) {
+      chatRollingEveryEl.value = String(items.chatRollingSummaryEvery ?? 16);
+    }
+    if (chatRollingBatchEl) {
+      chatRollingBatchEl.value = String(items.chatRollingSummaryBatch ?? 8);
+    }
   });
 }
 
@@ -591,6 +674,7 @@ wireEvents();
 loadLlmConfigs();
 loadMcp();
 loadBrowserAutomation();
-loadRulesAndSkills();
+loadAgentInstructions();
+loadChatContextForm();
 loadAgentOrchestrator();
 void updateUI();

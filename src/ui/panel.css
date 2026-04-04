@@ -1285,6 +1285,25 @@ button.primary:hover {
   color: var(--text-muted);
 }
 
+.settings-subsection-title {
+  margin: 18px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.settings-subsection-title:first-of-type {
+  margin-top: 0;
+}
+
+.settings-inline-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .settings-row-label {
   flex: 0 0 140px;
   font-size: 13px;

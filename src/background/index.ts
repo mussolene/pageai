@@ -44,19 +44,11 @@ import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
 import { buildAgentConversationFromChatHistory, CHAT_ROLLING_SUMMARY_KEYS } from "../chat/chat-llm-context";
 import { maybeRefreshRollingChatSummary } from "../chat/rolling-summary";
+import { CHAT_CONTEXT_SYNC_DEFAULTS } from "../chat/chat-context-sync";
 import { runWebResearch } from "../search/web-research";
 import { UNTRUSTED_CONTENT_SECURITY_BLOCK, wrapUntrustedWebPageContent } from "../agent/untrusted-content";
 
 const storage = new Storage();
-
-/** Лимиты контекста чата и rolling-summary (chrome.storage.sync). */
-const CHAT_CONTEXT_SYNC_DEFAULTS = {
-  chatContextMaxMessages: 56,
-  chatContextMaxChars: 100_000,
-  chatRollingSummaryEnabled: true,
-  chatRollingSummaryEvery: 16,
-  chatRollingSummaryBatch: 8
-} as const;
 
 async function loadChatContextPolicy(): Promise<{
   maxMessages: number;
@@ -368,12 +360,10 @@ async function buildBaseSystemPromptWithAgentMeta(): Promise<string> {
     );
   });
 
+  const merged = [agentRules.trim(), agentSkills.trim()].filter((x) => x !== "").join("\n\n");
   let prompt = BASE_CHAT_SYSTEM_PROMPT;
-  if (agentRules && agentRules.trim() !== "") {
-    prompt += `\n\n[RULES]\n${agentRules.trim()}`;
-  }
-  if (agentSkills && agentSkills.trim() !== "") {
-    prompt += `\n\n[SKILLS]\n${agentSkills.trim()}`;
+  if (merged !== "") {
+    prompt += `\n\n[AGENT_INSTRUCTIONS]\n${merged}`;
   }
   prompt += `\n\n${UNTRUSTED_CONTENT_SECURITY_BLOCK}`;
   return prompt;
@@ -382,7 +372,7 @@ async function buildBaseSystemPromptWithAgentMeta(): Promise<string> {
 async function loadAgentToolsAndPrompt(): Promise<{
   mcpLoaded: McpToolsLoadResult;
   browserTools: OpenAITool[];
-  /** Base prompt + [RULES] + [SKILLS] + optional [MCP_PROMPTS] (no tool-list / INTENT blocks). Passed into orchestrator subtasks. */
+  /** Base prompt + [AGENT_INSTRUCTIONS] + optional [MCP_PROMPTS] (no tool-list / INTENT blocks). Passed into orchestrator subtasks. */
   agentContextForSubtasks: string;
   systemPrompt: string;
   orchestrator: OrchestratorSyncSettings;

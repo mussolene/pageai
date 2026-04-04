@@ -16,11 +16,11 @@
       <div class="settings-layout-two-col">
         <nav class="settings-nav" role="navigation" aria-label="Settings sections">
           <button type="button" class="settings-nav-item is-active" data-section="llm" id="nav-llm">LLM</button>
+          <button type="button" class="settings-nav-item" data-section="chat" id="nav-chat">Chat</button>
           <button type="button" class="settings-nav-item" data-section="browser" id="nav-browser">Browser</button>
           <button type="button" class="settings-nav-item" data-section="agent" id="nav-agent">Agent</button>
           <button type="button" class="settings-nav-item" data-section="mcp" id="nav-mcp">MCP</button>
-          <button type="button" class="settings-nav-item" data-section="rules" id="nav-rules">Rules</button>
-          <button type="button" class="settings-nav-item" data-section="skills" id="nav-skills">Skills</button>
+          <button type="button" class="settings-nav-item" data-section="instructions" id="nav-instructions">Instructions</button>
         </nav>
 
         <main class="settings-main">
@@ -80,6 +80,49 @@
             </div>
           </section>
 
+          <section id="section-chat" class="settings-section hidden" aria-labelledby="nav-chat">
+            <h2 class="settings-section-title" id="section-chat-title">Chat context</h2>
+            <p class="settings-section-desc" id="section-chat-desc">
+              Limits for messages sent to the model and optional rolling summary of older turns (stored locally).
+            </p>
+            <div class="settings-content">
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-context-max-messages">Max messages</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-context-max-messages" min="4" max="256" step="1" value="56" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-context-max-chars">Max characters</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-context-max-chars" min="4000" max="500000" step="1000" value="100000" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-chat-rolling-enabled">Rolling summary of older messages</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="chat-rolling-summary-enabled">
+                    <input type="checkbox" id="chat-rolling-summary-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-rolling-summary-every">Summarize every N new messages</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-rolling-summary-every" min="4" max="80" step="1" value="16" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-rolling-summary-batch">Messages per summary batch</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-rolling-summary-batch" min="2" max="40" step="1" value="8" />
+                </div>
+              </div>
+              <span id="chat-context-status" class="status"></span>
+            </div>
+          </section>
+
           <section id="section-browser" class="settings-section hidden" aria-labelledby="nav-browser">
             <h2 class="settings-section-title">Browser automation</h2>
             <div class="settings-content">
@@ -96,11 +139,12 @@
           </section>
 
           <section id="section-agent" class="settings-section hidden" aria-labelledby="nav-agent">
-            <h2 class="settings-section-title">Agent orchestrator</h2>
-            <p class="settings-section-desc">
+            <h2 class="settings-section-title" id="section-agent-title">Agent orchestrator</h2>
+            <p class="settings-section-desc" id="section-agent-desc">
               Sub-planner and verify run as separate short LLM calls. Tool output compression applies only before the main model sees results (per tool, when over the threshold).
             </p>
             <div class="settings-content">
+              <h3 class="settings-subsection-title" id="agent-sub-loop">Loop</h3>
               <div class="settings-row settings-row-toggle">
                 <span class="settings-row-label" id="label-orchestrator-plan">Plan subtask (clean context)</span>
                 <div class="settings-row-control">
@@ -143,6 +187,7 @@
                   <input type="number" id="orchestrator-max-tool-iterations" min="3" max="40" step="1" value="10" />
                 </div>
               </div>
+              <h3 class="settings-subsection-title" id="agent-sub-tool">Tool output</h3>
               <div class="settings-row settings-row-toggle">
                 <span class="settings-row-label" id="label-orchestrator-preshape">Pre-filter tool output (keyword lines from your message)</span>
                 <div class="settings-row-control">
@@ -206,6 +251,7 @@
                   <input type="number" id="orchestrator-compress-target" min="400" max="100000" step="200" value="4000" />
                 </div>
               </div>
+              <h3 class="settings-subsection-title" id="agent-sub-search">Search and keywords</h3>
               <div class="settings-row settings-row-vertical">
                 <label class="settings-row-label" for="agent-search-lexicon">Search lexicon</label>
                 <div class="settings-row-control">
@@ -217,7 +263,7 @@
           </section>
 
           <section id="section-mcp" class="settings-section hidden" aria-labelledby="nav-mcp">
-            <h2 class="settings-section-title">MCP servers (JSON)</h2>
+            <h2 class="settings-section-title" id="section-mcp-title">MCP</h2>
             <div class="settings-content">
               <div class="settings-row settings-row-vertical">
                 <label class="settings-row-label" for="mcp-servers-config">MCP servers (JSON)</label>
@@ -239,29 +285,17 @@
             </div>
           </section>
 
-          <section id="section-rules" class="settings-section hidden" aria-labelledby="nav-rules">
-            <h2 class="settings-section-title">Rules</h2>
-            <p class="settings-section-desc">Rules for the agent (e.g. always answer briefly; consider page context).</p>
+          <section id="section-instructions" class="settings-section hidden" aria-labelledby="nav-instructions">
+            <h2 class="settings-section-title" id="section-instructions-title">Agent instructions</h2>
+            <p class="settings-section-desc" id="section-instructions-desc">
+              Custom rules and capabilities merged into the system prompt (replaces separate Rules and Skills).
+            </p>
             <div class="settings-content">
               <div class="settings-row settings-row-vertical">
-                <label class="settings-row-label" for="agent-rules">Agent rules</label>
+                <label class="settings-row-label" for="agent-instructions">Instructions</label>
                 <div class="settings-row-control">
-                  <textarea id="agent-rules" rows="6" placeholder="e.g. Always answer in Russian. Keep answers concise."></textarea>
-                  <span id="rules-status" class="status"></span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section id="section-skills" class="settings-section hidden" aria-labelledby="nav-skills">
-            <h2 class="settings-section-title">Skills</h2>
-            <p class="settings-section-desc">Skills and capabilities (e.g. can click on page, fill forms, call MCP tools).</p>
-            <div class="settings-content">
-              <div class="settings-row settings-row-vertical">
-                <label class="settings-row-label" for="agent-skills">Agent skills</label>
-                <div class="settings-row-control">
-                  <textarea id="agent-skills" rows="6" placeholder="e.g. Read page, click buttons, fill fields, navigate, call MCP tools."></textarea>
-                  <span id="skills-status" class="status"></span>
+                  <textarea id="agent-instructions" rows="10" placeholder="e.g. Answer in Russian, stay concise. You can use tools, browser automation, and MCP."></textarea>
+                  <span id="instructions-status" class="status"></span>
                 </div>
               </div>
             </div>

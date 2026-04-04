@@ -11,6 +11,12 @@ import {
   getDefaultMcpServersConfig
 } from "../mcp/client";
 import { resetRollingChatSummaryStorage } from "../chat/rolling-summary";
+import {
+  loadInlineExtensionSettings,
+  wireInlineExtensionSettings,
+  applyOrchestratorInlineFromSettings
+} from "./inline-extension-settings";
+import { mergeOrchestratorSettings, ORCHESTRATOR_SYNC_STORAGE_DEFAULTS } from "../agent/orchestrator-settings";
 
 const messagesContainer = document.getElementById("messages") as HTMLDivElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
@@ -877,6 +883,52 @@ async function updateUI() {
     clearChatBtn.setAttribute("aria-label", await translate("chat.clearChat"));
   }
 
+  const navKeys: Record<string, string> = {
+    llm: "settings.navLlm",
+    chat: "settings.navChat",
+    browser: "settings.navBrowser",
+    agent: "settings.navAgent",
+    mcp: "settings.navMcp",
+    instructions: "settings.navInstructions"
+  };
+  for (const btn of document.querySelectorAll("#settings-panel .settings-nav-item")) {
+    const s = (btn as HTMLElement).dataset.section;
+    if (s && navKeys[s]) (btn as HTMLElement).textContent = await translate(navKeys[s]);
+  }
+
+  const llmRowLabels = document.querySelectorAll("#panel-section-llm > .settings-content > .settings-row > .settings-row-label");
+  if (llmRowLabels[0]) llmRowLabels[0].textContent = await translate("settings.navLlm");
+  if (llmRowLabels[1]) llmRowLabels[1].textContent = await translate("settings.maxTokens");
+
+  const hint = document.getElementById("panel-agent-quick-hint");
+  if (hint) hint.textContent = await translate("settings.agentQuickHint");
+  const openOptAgent = document.getElementById("panel-open-options-agent");
+  if (openOptAgent) openOptAgent.textContent = await translate("settings.openFullSettings");
+
+  const rollingLab = document.getElementById("panel-label-chat-rolling");
+  if (rollingLab) rollingLab.textContent = await translate("settings.chatRollingSummaryEnabled");
+  const planLab = document.getElementById("panel-label-orchestrator-plan");
+  if (planLab) planLab.textContent = await translate("settings.orchestratorPlanShort");
+  const verLab = document.getElementById("panel-label-orchestrator-verify");
+  if (verLab) verLab.textContent = await translate("settings.orchestratorVerifyShort");
+  const maxRoundsLab = document.querySelector('label[for="inline-orchestrator-max-tool-iterations"]');
+  if (maxRoundsLab) maxRoundsLab.textContent = await translate("settings.orchestratorMaxRoundsShort");
+  const mcpPromptsLab = document.getElementById("panel-label-mcp-agent-prompts");
+  if (mcpPromptsLab) mcpPromptsLab.textContent = await translate("settings.mcpAgentPromptsEnabled");
+  const instrLab = document.getElementById("panel-label-agent-instructions");
+  if (instrLab) instrLab.textContent = await translate("settings.agentInstructionsLabel");
+
+  const chatLabelMap: [string, string][] = [
+    ["chat-context-max-messages", "settings.chatContextMaxMessages"],
+    ["chat-context-max-chars", "settings.chatContextMaxChars"],
+    ["chat-rolling-summary-every", "settings.chatRollingEvery"],
+    ["chat-rolling-summary-batch", "settings.chatRollingBatch"]
+  ];
+  for (const [id, key] of chatLabelMap) {
+    const lab = document.querySelector(`#panel-section-chat label[for="${id}"]`);
+    if (lab) lab.textContent = await translate(key);
+  }
+
   const browserAutomationLabel = document.querySelector("#settings-panel #panel-section-browser .settings-row-label");
   if (browserAutomationLabel) browserAutomationLabel.textContent = await translate("settings.browserAutomation");
   const themeBtnLight = document.querySelector('.theme-toggle-btn[data-theme="light"]');
@@ -913,15 +965,6 @@ function switchSettingsSection(section: string): void {
   document.querySelectorAll("#settings-panel .settings-section").forEach((sec) => {
     const id = sec.id;
     (sec as HTMLElement).classList.toggle("hidden", !id || id !== `panel-section-${section}`);
-  });
-}
-
-function loadPanelRulesAndSkills(): void {
-  chrome.storage.sync.get({ agentRules: "", agentSkills: "" }, (items) => {
-    const rulesEl = document.getElementById("panel-agent-rules") as HTMLTextAreaElement | null;
-    const skillsEl = document.getElementById("panel-agent-skills") as HTMLTextAreaElement | null;
-    if (rulesEl) rulesEl.value = (items.agentRules as string) ?? "";
-    if (skillsEl) skillsEl.value = (items.agentSkills as string) ?? "";
   });
 }
 
@@ -977,46 +1020,7 @@ function wireEvents() {
     });
   });
 
-  const panelRulesEl = document.getElementById("panel-agent-rules") as HTMLTextAreaElement | null;
-  const panelSkillsEl = document.getElementById("panel-agent-skills") as HTMLTextAreaElement | null;
-  const panelRulesStatus = document.getElementById("panel-rules-status") as HTMLSpanElement | null;
-  const panelSkillsStatus = document.getElementById("panel-skills-status") as HTMLSpanElement | null;
-  function showPanelRulesSaved(): void {
-    if (panelRulesStatus) {
-      panelRulesStatus.textContent = "Saved";
-      panelRulesStatus.className = "status success";
-      setTimeout(() => {
-        panelRulesStatus!.textContent = "";
-        panelRulesStatus!.className = "status";
-      }, 2000);
-    }
-  }
-  function showPanelSkillsSaved(): void {
-    if (panelSkillsStatus) {
-      panelSkillsStatus.textContent = "Saved";
-      panelSkillsStatus.className = "status success";
-      setTimeout(() => {
-        panelSkillsStatus!.textContent = "";
-        panelSkillsStatus!.className = "status";
-      }, 2000);
-    }
-  }
-  panelRulesEl?.addEventListener("input", () => {
-    chrome.storage.sync.set({ agentRules: panelRulesEl?.value ?? "" });
-    showPanelRulesSaved();
-  });
-  panelRulesEl?.addEventListener("blur", () => {
-    chrome.storage.sync.set({ agentRules: panelRulesEl?.value ?? "" });
-    showPanelRulesSaved();
-  });
-  panelSkillsEl?.addEventListener("input", () => {
-    chrome.storage.sync.set({ agentSkills: panelSkillsEl?.value ?? "" });
-    showPanelSkillsSaved();
-  });
-  panelSkillsEl?.addEventListener("blur", () => {
-    chrome.storage.sync.set({ agentSkills: panelSkillsEl?.value ?? "" });
-    showPanelSkillsSaved();
-  });
+  wireInlineExtensionSettings();
 
   browserAutomationCheckbox?.addEventListener("change", () => {
     chrome.storage.sync.set({ browserAutomationEnabled: browserAutomationCheckbox.checked });
@@ -1064,8 +1068,32 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "sync" && (changes.llmConfigs || changes.activeLlmConfigId)) {
     void getLlmConfigsAndActive().then(({ configs, activeId }) => refreshConfigSelect(configs, activeId));
   }
+  if (areaName === "sync") {
+    const orchKeys = [
+      "orchestratorPlanEnabled",
+      "orchestratorVerifyEnabled",
+      "orchestratorMaxToolIterations"
+    ];
+    if (orchKeys.some((k) => k in changes)) {
+      chrome.storage.sync.get(ORCHESTRATOR_SYNC_STORAGE_DEFAULTS, (items) => {
+        applyOrchestratorInlineFromSettings(mergeOrchestratorSettings(items as Record<string, unknown>));
+      });
+    }
+    if (
+      changes.chatContextMaxMessages ||
+      changes.chatContextMaxChars ||
+      changes.chatRollingSummaryEnabled ||
+      changes.chatRollingSummaryEvery ||
+      changes.chatRollingSummaryBatch ||
+      changes.mcpAgentPromptsEnabled ||
+      changes.agentRules ||
+      changes.agentSkills
+    ) {
+      loadInlineExtensionSettings();
+    }
+  }
 });
 void updateUI();
 void loadChatHistory();
 void loadLlmConfig();
-loadPanelRulesAndSkills();
+loadInlineExtensionSettings();

@@ -63,10 +63,11 @@
       <div class="settings-layout-two-col settings-layout-panel">
         <nav class="settings-nav" role="navigation" aria-label="Settings sections">
           <button type="button" class="settings-nav-item is-active" data-section="llm">LLM</button>
+          <button type="button" class="settings-nav-item" data-section="chat">Chat</button>
           <button type="button" class="settings-nav-item" data-section="browser">Browser</button>
+          <button type="button" class="settings-nav-item" data-section="agent">Agent</button>
           <button type="button" class="settings-nav-item" data-section="mcp">MCP</button>
-          <button type="button" class="settings-nav-item" data-section="rules">Rules</button>
-          <button type="button" class="settings-nav-item" data-section="skills">Skills</button>
+          <button type="button" class="settings-nav-item" data-section="instructions">Instructions</button>
         </nav>
         <main class="settings-main">
           <section id="panel-section-llm" class="settings-section" aria-label="LLM">
@@ -87,6 +88,44 @@
               <span id="llm-status" class="status"></span>
             </div>
           </section>
+          <section id="panel-section-chat" class="settings-section hidden" aria-label="Chat context">
+            <div class="settings-content">
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-context-max-messages">Max messages</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-context-max-messages" min="4" max="256" step="1" value="56" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-context-max-chars">Max characters</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-context-max-chars" min="4000" max="500000" step="1000" value="100000" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="panel-label-chat-rolling">Rolling summary</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="chat-rolling-summary-enabled">
+                    <input type="checkbox" id="chat-rolling-summary-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-rolling-summary-every">Every N messages</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-rolling-summary-every" min="4" max="80" step="1" value="16" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="chat-rolling-summary-batch">Batch size</label>
+                <div class="settings-row-control">
+                  <input type="number" id="chat-rolling-summary-batch" min="2" max="40" step="1" value="8" />
+                </div>
+              </div>
+              <span id="chat-context-status" class="status"></span>
+            </div>
+          </section>
           <section id="panel-section-browser" class="settings-section hidden" aria-label="Browser automation">
             <div class="settings-content">
               <div class="settings-row settings-row-toggle">
@@ -100,36 +139,70 @@
               </div>
             </div>
           </section>
+          <section id="panel-section-agent" class="settings-section hidden" aria-label="Agent">
+            <div class="settings-content">
+              <p class="settings-inline-hint" id="panel-agent-quick-hint"></p>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="panel-label-orchestrator-plan">Plan subtask</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="inline-orchestrator-plan-enabled">
+                    <input type="checkbox" id="inline-orchestrator-plan-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="panel-label-orchestrator-verify">Verify after tools</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="inline-orchestrator-verify-enabled">
+                    <input type="checkbox" id="inline-orchestrator-verify-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="inline-orchestrator-max-tool-iterations">Max tool rounds</label>
+                <div class="settings-row-control">
+                  <input type="number" id="inline-orchestrator-max-tool-iterations" min="3" max="40" step="1" value="10" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-controls">
+                <span class="settings-row-label"></span>
+                <div class="settings-row-control">
+                  <button id="panel-open-options-agent" type="button" class="secondary"></button>
+                </div>
+              </div>
+              <span id="inline-orchestrator-status" class="status"></span>
+            </div>
+          </section>
           <section id="panel-section-mcp" class="settings-section hidden" aria-label="MCP">
             <div class="settings-content">
               <div class="settings-row settings-row-vertical">
                 <span class="settings-row-label">MCP servers (JSON)</span>
                 <div class="settings-row-control">
-                  <textarea id="mcp-servers-config" rows="10" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
+                  <textarea id="mcp-servers-config" rows="8" placeholder='{"mcpServers":{"name":{"url":"...","headers":{}}}}'></textarea>
                 </div>
               </div>
               <div id="mcp-servers-list" class="mcp-servers-list" aria-label="MCP servers toggles"></div>
+              <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="panel-label-mcp-agent-prompts">MCP prompts in system prompt</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="mcp-agent-prompts-enabled">
+                    <input type="checkbox" id="mcp-agent-prompts-enabled" class="toggle-input" />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
               <span id="mcp-status" class="status"></span>
             </div>
           </section>
-          <section id="panel-section-rules" class="settings-section hidden" aria-label="Rules">
+          <section id="panel-section-instructions" class="settings-section hidden" aria-label="Instructions">
             <div class="settings-content">
               <div class="settings-row settings-row-vertical">
-                <span class="settings-row-label">Agent rules</span>
+                <span class="settings-row-label" id="panel-label-agent-instructions">Instructions</span>
                 <div class="settings-row-control">
-                  <textarea id="panel-agent-rules" rows="4" placeholder="Rules for the agent…"></textarea>
-                  <span id="panel-rules-status" class="status"></span>
-                </div>
-              </div>
-            </div>
-          </section>
-          <section id="panel-section-skills" class="settings-section hidden" aria-label="Skills">
-            <div class="settings-content">
-              <div class="settings-row settings-row-vertical">
-                <span class="settings-row-label">Agent skills</span>
-                <div class="settings-row-control">
-                  <textarea id="panel-agent-skills" rows="4" placeholder="Skills and capabilities…"></textarea>
-                  <span id="panel-skills-status" class="status"></span>
+                  <textarea id="panel-agent-instructions" rows="5" placeholder="Rules and capabilities for the agent…"></textarea>
+                  <span id="panel-instructions-status" class="status"></span>
                 </div>
               </div>
             </div>
