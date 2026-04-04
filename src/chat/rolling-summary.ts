@@ -11,8 +11,33 @@ export interface RollingSummaryPolicy {
   batchMessages: number;
 }
 
+function storageLocalGet(keys: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(keys, (items) => {
+      if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+      else resolve(items as Record<string, unknown>);
+    });
+  });
+}
+
+function storageLocalSet(items: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(items, () => {
+      if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+      else resolve();
+    });
+  });
+}
+
+/** Сброс rolling-summary в chrome.storage.local (и смена epoch, чтобы фон не дописал старое саммари после очистки чата). */
 export async function resetRollingChatSummaryStorage(): Promise<void> {
-  await chrome.storage.local.remove([CHAT_ROLLING_SUMMARY_KEYS.text, CHAT_ROLLING_SUMMARY_KEYS.covers]);
+  const cur = await storageLocalGet({ [CHAT_ROLLING_SUMMARY_KEYS.epoch]: 0 });
+  const next = (Number(cur[CHAT_ROLLING_SUMMARY_KEYS.epoch]) || 0) + 1;
+  await storageLocalSet({
+    [CHAT_ROLLING_SUMMARY_KEYS.text]: "",
+    [CHAT_ROLLING_SUMMARY_KEYS.covers]: 0,
+    [CHAT_ROLLING_SUMMARY_KEYS.epoch]: next
+  });
 }
 
 /**
@@ -26,10 +51,12 @@ export async function maybeRefreshRollingChatSummary(
 ): Promise<void> {
   if (!policy.enabled || history.length < 2) return;
 
-  const local = await chrome.storage.local.get({
+  const local = await storageLocalGet({
     [CHAT_ROLLING_SUMMARY_KEYS.text]: "",
-    [CHAT_ROLLING_SUMMARY_KEYS.covers]: 0
+    [CHAT_ROLLING_SUMMARY_KEYS.covers]: 0,
+    [CHAT_ROLLING_SUMMARY_KEYS.epoch]: 0
   });
+  const epochStart = Number(local[CHAT_ROLLING_SUMMARY_KEYS.epoch]) || 0;
   const covers = Number(local[CHAT_ROLLING_SUMMARY_KEYS.covers]) || 0;
   const prevSummary = String(local[CHAT_ROLLING_SUMMARY_KEYS.text] ?? "");
 
@@ -63,8 +90,13 @@ export async function maybeRefreshRollingChatSummary(
   });
   if ("error" in r || !r.text.trim()) return;
 
+  const epochNow = Number(
+    (await storageLocalGet({ [CHAT_ROLLING_SUMMARY_KEYS.epoch]: 0 }))[CHAT_ROLLING_SUMMARY_KEYS.epoch]
+  ) || 0;
+  if (epochNow !== epochStart) return;
+
   const nextCovers = covers + batch.length;
-  await chrome.storage.local.set({
+  await storageLocalSet({
     [CHAT_ROLLING_SUMMARY_KEYS.text]: r.text.trim(),
     [CHAT_ROLLING_SUMMARY_KEYS.covers]: nextCovers
   });

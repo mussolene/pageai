@@ -14,7 +14,9 @@ export interface ChatRollingSummaryLocalState {
 
 export const CHAT_ROLLING_SUMMARY_KEYS = {
   text: "chatRollingSummaryText",
-  covers: "chatRollingCoversCount"
+  covers: "chatRollingCoversCount",
+  /** Увеличивается при «Очистить чат»; отменяет отложенную запись саммари из фона. */
+  epoch: "chatRollingSummaryEpoch"
 } as const;
 
 export interface BuildAgentConversationOptions {

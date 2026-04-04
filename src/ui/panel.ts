@@ -1118,8 +1118,8 @@ async function clearChat(): Promise<void> {
   streamingBuffer = "";
   streamingReasoningSteps = [];
   isSending = false;
-  await storage.clearChatHistory();
   await resetRollingChatSummaryStorage();
+  await storage.clearChatHistory();
   chatHistory = [];
   void updatePlayStopButton(false);
   void renderMessages();
