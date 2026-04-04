@@ -30,3 +30,4 @@ Thumbs.db
 
 # Extracted Docker image contents (from scripts/extract-docker-image)
 *-latest/
+CLAUDE.md

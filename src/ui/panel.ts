@@ -1,7 +1,7 @@
 import type { ChatMessage, ReasoningStep, SearchResult } from "../types/messages";
 import { translate, getStoredLocale } from "../i18n";
 import { Storage } from "../storage/indexdb";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, renderStreamingAnswerPreview } from "./markdown";
 import { parseLlmResponse, highlightInlineCitations, createSourceListItems } from "../search/sources";
 import { keywordSearch } from "../search/keyword";
 import { rerank } from "../search/rerank";
@@ -284,7 +284,7 @@ async function doRenderMessages() {
       const answerContent = document.createElement("div");
       answerContent.className = "message-answer";
       if (!hasAnswer) answerContent.classList.add("message-answer-empty");
-      if (hasAnswer) renderMarkdown(answerContent, parsed.answer ?? "");
+      if (hasAnswer) renderStreamingAnswerPreview(answerContent, parsed.answer ?? "");
       bubble.appendChild(answerContent);
       streamingAnswerEl = answerContent;
       liveWrap.appendChild(bubble);
@@ -564,7 +564,7 @@ async function handleSendMessage() {
       if (streamingAnswerEl && parsed.answer != null) {
         if (parsed.answer.length > 0) {
           streamingAnswerEl.classList.remove("message-answer-empty");
-          renderMarkdown(streamingAnswerEl, parsed.answer);
+          renderStreamingAnswerPreview(streamingAnswerEl, parsed.answer);
         }
       }
       if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;

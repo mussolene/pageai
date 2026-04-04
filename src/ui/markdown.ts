@@ -83,16 +83,28 @@ function parseInlineMarkdown(text: string): string {
 }
 
 /**
+ * First word of the info string after ``` — safe for HTML class (C++, C#, TypeScript, …).
+ */
+function fenceLangForClass(info: string): string {
+  const trimmed = info.trim();
+  if (!trimmed) return "";
+  const m = trimmed.match(/^[\w#+.:+-]+/);
+  return m ? m[0].slice(0, 48) : "";
+}
+
+/**
  * Parse code blocks with optional language. Supports ```code``` without trailing newline.
+ * Info string: letters, digits, _, #, +, ., :, - (e.g. C++, C#, TypeScript, objective-c).
  */
 function parseCodeBlock(text: string): string {
   let result = text;
 
-  // ```lang?\n?code\n?``` — optional newline after open and before close
+  // ``` + info (rest of opening line, no backticks) + newline? + body + ```
   result = result.replace(
-    /```([a-z0-9]*)\n?([\s\S]*?)```/g,
-    (_match, lang, code) => {
-      const langClass = lang ? ` class="language-${lang}"` : "";
+    /```([^\n`]*)[\n\r]?([\s\S]*?)```/g,
+    (_match, info: string, code: string) => {
+      const langToken = fenceLangForClass(info);
+      const langClass = langToken ? ` class="language-${escapeHtml(langToken)}"` : "";
       const escaped = escapeHtml(code.trimEnd()).replace(/\n/g, "&#10;");
       return `<pre class="md-code-block"><code${langClass}>${escaped}</code></pre>`;
     }
@@ -344,6 +356,18 @@ export function renderMarkdown(container: HTMLElement, markdown: string): void {
       }
     });
   });
+}
+
+/**
+ * Fast path while SSE chunks arrive: escape + line breaks only — O(n) per update, no full markdown.
+ * Final message still uses {@link renderMarkdown} after stream ends.
+ */
+export function renderStreamingAnswerPreview(container: HTMLElement, text: string): void {
+  if (!text) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = escapeHtml(text).replace(/\n/g, "<br>");
 }
 
 /**

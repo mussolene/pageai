@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   markdownToHtml,
   renderMarkdown,
+  renderStreamingAnswerPreview,
   markdownToPlainText,
 } from '../src/ui/markdown';
 
@@ -121,6 +122,25 @@ describe('Markdown Parser', () => {
       expect(result).toContain('md-code-block');
       expect(result).toContain('typescript');
       expect(result).toContain('const x = 5;');
+    });
+
+    it('should parse code block with C++ and C# language tags', () => {
+      const cpp = markdownToHtml('```C++\nint x;\n```');
+      expect(cpp).toContain('md-code-block');
+      expect(cpp).toContain('language-C++');
+      expect(cpp).toContain('int x;');
+
+      const cs = markdownToHtml("```C#\nvar s = 'a';\n```");
+      expect(cs).toContain('md-code-block');
+      expect(cs).toContain('language-C#');
+      expect(cs).toContain("var s = 'a'");
+    });
+
+    it('should parse code block with TypeScript mixed case', () => {
+      const result = markdownToHtml('```TypeScript\nlet y = 1;\n```');
+      expect(result).toContain('md-code-block');
+      expect(result).toContain('language-TypeScript');
+      expect(result).toContain('let y = 1;');
     });
 
     it('should parse code block without language', () => {
@@ -401,6 +421,15 @@ const code = true;
         .join('\n');
       renderMarkdown(container, md);
       expect(container.querySelectorAll('li')).toHaveLength(100);
+    });
+
+    it('renderStreamingAnswerPreview escapes HTML and preserves newlines', () => {
+      renderStreamingAnswerPreview(container, 'a <b>x</b>\nline2');
+      expect(container.querySelector('b')).toBeNull();
+      expect(container.innerHTML).toContain('&lt;b&gt;');
+      expect(container.innerHTML).toContain('<br>');
+      expect(container.textContent).toContain('a <b>x</b>');
+      expect(container.textContent).toContain('line2');
     });
 
     it('should properly close all HTML tags', () => {
