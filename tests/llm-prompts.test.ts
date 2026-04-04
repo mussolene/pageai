@@ -12,6 +12,7 @@ describe("buildChatSystemPrompt", () => {
     expect(s.length).toBeGreaterThan(0);
     expect(s).toContain("Источники:");
     expect(s).toContain("---");
+    expect(s).toContain("UNTRUSTED");
   });
 });
 
@@ -32,6 +33,7 @@ describe("buildSummaryPrompt", () => {
     expect(s).toContain("Page 1");
     expect(s).toContain("http://e.com/1");
     expect(s).toContain("Content here");
+    expect(s).toContain("UNTRUSTED_WEB_PAGE_DATA_BEGIN");
   });
 
   it("uses default query when query is undefined", () => {
@@ -74,6 +76,7 @@ describe("buildSourceAwarePrompt", () => {
     expect(s).toContain("Current page: /docs");
     expect(s).toContain("[1]");
     expect(s).toContain("Источники:");
+    expect(s).toContain("UNTRUSTED_WEB_PAGE_DATA_BEGIN");
   });
 
   it("uses default when context is undefined", () => {

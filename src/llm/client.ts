@@ -1,6 +1,8 @@
 import type { Page, SummarizePayload } from "../types/messages";
+import { getStoredLocale } from "../i18n";
 import { buildSummaryPrompt, buildChatSystemPrompt } from "./prompts";
 import { getCachedLlmResponse, setCachedLlmResponse } from "../storage/indexdb";
+import { appendReplyLanguageToSystemPrompt, findLastUserPlainText } from "./reply-language";
 
 export interface LlmConfig {
   endpoint: string;
@@ -53,6 +55,16 @@ export type LlmMessageForApi =
   | { role: "tool"; tool_call_id: string; content: string };
 
 const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
+
+/** Явный язык ответа по последнему user-сообщению + локали UI (устойчиво для Qwen и др.). */
+async function mergeSystemPromptWithReplyLanguage(
+  baseSystem: string,
+  messages: ReadonlyArray<{ role: string; content?: string | null }>
+): Promise<string> {
+  const uiLocale = await getStoredLocale();
+  const last = findLastUserPlainText(messages);
+  return appendReplyLanguageToSystemPrompt(baseSystem, last, uiLocale);
+}
 
 /** Таймаут по умолчанию для запросов к LLM (чат, саммари). */
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -279,6 +291,8 @@ export async function summarizePages(
   }
 
   const prompt = buildSummaryPrompt(pages, payload.query);
+  const baseSystem = buildChatSystemPrompt();
+  const systemContent = await mergeSystemPromptWithReplyLanguage(baseSystem, [{ role: "user", content: prompt }]);
   const { signal, cleanup } = abortSignalWithTimeout(DEFAULT_REQUEST_TIMEOUT_MS);
 
   try {
@@ -294,7 +308,7 @@ export async function summarizePages(
         messages: [
           {
             role: "system",
-            content: buildChatSystemPrompt()
+            content: systemContent
           },
           {
             role: "user",
@@ -354,7 +368,8 @@ export async function chatWithLLM(
   const { signal, cleanup } = timeout;
 
   try {
-    const systemPrompt = options.systemPrompt || buildChatSystemPrompt();
+    const baseSystem = options.systemPrompt || buildChatSystemPrompt();
+    const systemPrompt = await mergeSystemPromptWithReplyLanguage(baseSystem, messages);
     const messagesWithSystem = [
       { role: "system" as const, content: systemPrompt },
       ...messages
@@ -422,7 +437,8 @@ export async function chatWithLLMOneRound(
     return { error: "LLM endpoint is not configured. Configure LM Studio at localhost:1234" };
   }
 
-  const systemPrompt = options.systemPrompt ?? buildChatSystemPrompt();
+  const baseSystem = options.systemPrompt ?? buildChatSystemPrompt();
+  const systemPrompt = await mergeSystemPromptWithReplyLanguage(baseSystem, messages);
   const messagesWithSystem: LlmMessageForApi[] = [
     { role: "system", content: systemPrompt },
     ...messages
@@ -534,7 +550,8 @@ export async function chatWithLLMStream(
   }
 
   const { onChunk, signal, ...rest } = options;
-  const systemPrompt = rest.systemPrompt || buildChatSystemPrompt();
+  const baseSystem = rest.systemPrompt || buildChatSystemPrompt();
+  const systemPrompt = await mergeSystemPromptWithReplyLanguage(baseSystem, messages);
   const messagesWithSystem = [
     { role: "system" as const, content: systemPrompt },
     ...messages
@@ -667,7 +684,8 @@ export async function chatWithLLMStreamWithTools(
     return { error: "LLM endpoint is not configured. Configure LM Studio at localhost:1234" };
   }
 
-  const systemPrompt = options.systemPrompt ?? buildChatSystemPrompt();
+  const baseSystem = options.systemPrompt ?? buildChatSystemPrompt();
+  const systemPrompt = await mergeSystemPromptWithReplyLanguage(baseSystem, messages);
   const messagesWithSystem: LlmMessageForApi[] = [
     { role: "system", content: systemPrompt },
     ...messages

@@ -23,7 +23,7 @@ export interface OrchestratorSyncSettings {
   orchestratorPreshapeMaxChars: number;
   /** Сколько соседних строк брать вокруг совпадения. */
   orchestratorPreshapeContextLines: number;
-  /** Синонимы / предпочитаемые термины для web_search и извлечения ключевых слов. */
+  /** Синонимы / предпочитаемые термины для поиска (open_search_tab / web_research) и ключевых слов. */
   agentSearchLexicon: string;
   /** Короткая подзадача «какие tools уместны» до основного цикла. */
   orchestratorToolRelevanceEnabled: boolean;

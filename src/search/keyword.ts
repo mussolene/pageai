@@ -4,7 +4,7 @@ interface KeywordSearchOptions {
   limit?: number;
 }
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-zA-Zа-яА-Я0-9]+/u)

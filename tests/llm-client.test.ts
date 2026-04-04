@@ -185,7 +185,9 @@ describe("LLM Client - Session #1 Integration with LM Studio", () => {
       await chatWithLLM(messages, { systemPrompt: customSystemPrompt });
 
       const callBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
-      expect(callBody.messages[0].content).toBe(customSystemPrompt);
+      const systemContent = callBody.messages[0].content as string;
+      expect(systemContent.startsWith(customSystemPrompt)).toBe(true);
+      expect(systemContent).toContain("[REPLY_LANGUAGE");
     });
 
     it("should handle LLM error gracefully", async () => {

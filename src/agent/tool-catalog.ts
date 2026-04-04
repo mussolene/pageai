@@ -6,7 +6,8 @@ export const BUILTIN_ORCHESTRATOR_TOOL_NAMES = new Set([
   "page_click",
   "page_fill",
   "page_navigate",
-  "web_search",
+  "open_search_tab",
+  "web_research",
   "mcp_diagnose"
 ]);
 

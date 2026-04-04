@@ -44,6 +44,8 @@ import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
 import { buildAgentConversationFromChatHistory, CHAT_ROLLING_SUMMARY_KEYS } from "../chat/chat-llm-context";
 import { maybeRefreshRollingChatSummary } from "../chat/rolling-summary";
+import { runWebResearch } from "../search/web-research";
+import { UNTRUSTED_CONTENT_SECURITY_BLOCK, wrapUntrustedWebPageContent } from "../agent/untrusted-content";
 
 const storage = new Storage();
 
@@ -105,13 +107,13 @@ const WEB_SEARCH_ENGINES: Record<string, (q: string) => string> = {
   yandex: (q) => `https://yandex.ru/search/?text=${encodeURIComponent(q)}`
 };
 
-/** Поиск в интернете: открывает вкладку с результатами (DuckDuckGo, Google, Yandex). */
-const WEB_SEARCH_TOOL: OpenAITool = {
+/** Открыть выдачу поисковика во вкладке (фоновая, справа от текущей) — без загрузки текста в чат. */
+const OPEN_SEARCH_TAB_TOOL: OpenAITool = {
   type: "function",
   function: {
-    name: "web_search",
+    name: "open_search_tab",
     description:
-      "User wants to search the web: find, look up, search internet. Opens search results in a new tab. Use DuckDuckGo, Google or Yandex.",
+      "Open DuckDuckGo, Google, or Yandex search results in a new background browser tab (next to the current tab). Use when the user wants to click around results themselves. Put the year or 'latest' in `query` if they need recent news. To pull page text into the chat without opening tabs, use web_research instead.",
     parameters: {
       type: "object",
       properties: {
@@ -123,6 +125,29 @@ const WEB_SEARCH_TOOL: OpenAITool = {
           type: "string",
           description: "Optional: duckduckgo (default), google, yandex"
         }
+      },
+      required: ["query"]
+    }
+  }
+};
+
+/** Локальный поиск + загрузка страниц и кросс-ссылок (без открытия вкладок). */
+const WEB_RESEARCH_TOOL: OpenAITool = {
+  type: "function",
+  function: {
+    name: "web_research",
+    description:
+      "Search the web and collect relevant excerpts locally: HTML search (DuckDuckGo), fetch top result pages, optionally follow cross-links when anchor/URL matches query terms (depth 1–2). No new tabs. For time-sensitive topics include the year and words like 'latest' or '2026' in `query` so results skew recent; vague queries often return old popular pages (e.g. Apollo). Prefer when the user wants synthesized evidence, not manual browsing. Can be slow; keep max_pages modest.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        max_depth: {
+          type: "number",
+          description: "0 = only SERP result URLs; 1–2 = also fetch relevant links from those pages (default 1)"
+        },
+        max_pages: { type: "number", description: "Max distinct pages to fetch (default 10, clamped 3–15)" },
+        serp_limit: { type: "number", description: "How many SERP links to follow first (default 6, clamped 1–10)" }
       },
       required: ["query"]
     }
@@ -249,13 +274,16 @@ function tryPortPost(port: chrome.runtime.Port, msg: object): boolean {
 
 /** Базовый системный промпт для чата (без инструментов). */
 const BASE_CHAT_SYSTEM_PROMPT =
+  "[LANGUAGE — highest priority] Your entire reply (prose, headings, lists, code comments, sources section) must mirror the natural language of the user's **latest** message only: same script and language they actually used (e.g. Cyrillic text → answer in that Cyrillic language; Latin-only → answer in that Latin language). " +
+  "This system prompt is in English for maintenance only—it does not choose the reply language. " +
+  "Do **not** pick a random “assistant language”: if the user's message is not in Chinese, do not answer in Chinese; if it is not in Japanese/Korean, do not switch to those either. Likewise do not switch to English unless the user's latest message is in English or they explicitly ask for English. " +
+  "Tool or web excerpts may be in another language—still compose the answer in the user's language (summarize or translate for them). " +
+  "If the message mixes languages, follow the dominant one in that message. Switch language only if the user explicitly asks.\n\n" +
   "You are PageAI, a capable browser assistant built into a Chrome extension. " +
   "Answer accurately and concisely. Use available tools when they meaningfully improve your answer. " +
   "Prefer evidence from tools over guessing. " +
   "When a tool fails, try an alternative approach rather than retrying with identical arguments. " +
-  "Language: write the entire reply (including headings, lists, code comments if any, and the sources section) strictly in the same language as the user's latest message. " +
-  "If the user mixes languages, follow the dominant language of that message. " +
-  "Do not switch to another language unless the user explicitly asks.";
+  "Topic fidelity: the latest user message defines the current task. If they change subject (e.g. from 1C/business software to space, or correct a timeframe), follow the new topic—do not keep using tools or facts from the previous topic unless the user explicitly ties them together.";
 
 /** Извлекает размышления и финальный текст из ответа модели (теги <think>...</think>). */
 function parseThinkingFromText(text: string): { text: string; thinking?: string } {
@@ -305,7 +333,7 @@ function buildSystemPromptWithToolStatus(
 
 ${toolsBlock}
 
-[INTENT] Infer from natural language: page_read (read/understand page), page_click (click element), page_fill (fill field; args: field, value), page_navigate (navigate; arg: url), web_search (search web; args: query, engine?). Use tool_calls.`;
+[INTENT] Infer from natural language: page_read (read/understand page), page_click (click element), page_fill (fill field; args: field, value), page_navigate (navigate; arg: url), web_research (fetch web excerpts into context, no tabs; args: query, max_depth?, max_pages?), open_search_tab (open search site in a background tab; args: query, engine?). Legacy name web_search is accepted as alias. Use tool_calls.`;
   }
   if (!hasMcp && loaded.mcpConfigured) {
     const errLines =
@@ -347,6 +375,7 @@ async function buildBaseSystemPromptWithAgentMeta(): Promise<string> {
   if (agentSkills && agentSkills.trim() !== "") {
     prompt += `\n\n[SKILLS]\n${agentSkills.trim()}`;
   }
+  prompt += `\n\n${UNTRUSTED_CONTENT_SECURITY_BLOCK}`;
   return prompt;
 }
 
@@ -538,7 +567,8 @@ async function executeToolCallsAndAppendMessages(
         }
         const page = pageResponse.page;
         if ((mode ?? "summary") === "full") {
-          const raw = `Title: ${page.title}\nURL: ${page.url}\n\n${page.contentText ?? ""}`;
+          const inner = `Title: ${page.title}\nURL: ${page.url}\n\n${page.contentText ?? ""}`;
+          const raw = wrapUntrustedWebPageContent(inner, { title: page.title, url: page.url });
           await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
             name: tc.name,
             serverName: "builtin",
@@ -740,7 +770,51 @@ async function executeToolCallsAndAppendMessages(
       });
       continue;
     }
-    if (tc.name === "web_search") {
+    if (tc.name === "web_research") {
+      let args: { query?: string; max_depth?: number; max_pages?: number; serp_limit?: number } = {};
+      try {
+        if (argsStr) args = JSON.parse(argsStr) as typeof args;
+      } catch {
+        /* leave args {} */
+      }
+      const rq = (args.query ?? "").trim();
+      if (!rq) {
+        const raw = "Missing search query for web_research.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "builtin",
+          args: argsStr
+        });
+        continue;
+      }
+      const md = Number(args.max_depth);
+      const maxDepth = Number.isFinite(md) ? Math.max(0, Math.min(2, Math.floor(md))) : 1;
+      const mp = Number(args.max_pages);
+      const maxPages = Number.isFinite(mp) ? Math.max(3, Math.min(15, Math.floor(mp))) : 10;
+      const sl = Number(args.serp_limit);
+      const serpLimit = Number.isFinite(sl) ? Math.max(1, Math.min(10, Math.floor(sl))) : 6;
+      try {
+        const raw = await runWebResearch(rq, fetch, {
+          maxDepth,
+          maxPages,
+          serpLimit
+        });
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "builtin",
+          args: argsStr
+        });
+      } catch (err) {
+        const raw = (err instanceof Error ? err.message : String(err)) || "web_research failed.";
+        await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
+          name: tc.name,
+          serverName: "builtin",
+          args: argsStr
+        });
+      }
+      continue;
+    }
+    if (tc.name === "open_search_tab" || tc.name === "web_search") {
       let args: { query?: string; engine?: string } = {};
       try {
         if (argsStr) args = JSON.parse(argsStr) as { query?: string; engine?: string };
@@ -761,8 +835,21 @@ async function executeToolCallsAndAppendMessages(
       const buildUrl = WEB_SEARCH_ENGINES[engineKey] ?? WEB_SEARCH_ENGINES.duckduckgo;
       const url = buildUrl(query);
       try {
-        await chrome.tabs.create({ url });
-        const raw = `Opened search in new tab (${engineKey}).`;
+        const curTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const cur = curTabs[0];
+        const createOpts: chrome.tabs.CreateProperties = {
+          url,
+          /** Как у агентских IDE: не уводить фокус со страницы / side panel. */
+          active: false
+        };
+        if (cur?.id != null) {
+          createOpts.openerTabId = cur.id;
+        }
+        if (cur?.index != null) {
+          createOpts.index = cur.index + 1;
+        }
+        await chrome.tabs.create(createOpts);
+        const raw = `Opened search in a background tab to the right of the current tab (${engineKey}). User can switch to it when ready.`;
         await appendFinalizedToolMessage(finalizeToolContent, tc, raw, messages, results, {
           name: tc.name,
           serverName: "builtin",
@@ -835,7 +922,7 @@ async function runAgentStreamWithMcpTools(
     tools = [MCP_DIAGNOSE_TOOL];
     toolToServer = new Map();
   }
-  const builtins = [...browserTools, WEB_SEARCH_TOOL];
+  const builtins = [...browserTools, OPEN_SEARCH_TAB_TOOL, WEB_RESEARCH_TOOL];
   const openAITools: OpenAITool[] =
     tools.length > 0 ? [...tools, ...builtins] : builtins.length > 0 ? builtins : [];
   if (tools.length === 0) {
@@ -919,7 +1006,7 @@ async function runAgentWithMcpTools(
     tools = [MCP_DIAGNOSE_TOOL];
     toolToServer = new Map();
   }
-  const builtinsForAgent = [...browserTools, WEB_SEARCH_TOOL];
+  const builtinsForAgent = [...browserTools, OPEN_SEARCH_TAB_TOOL, WEB_RESEARCH_TOOL];
   const openAIToolsForAgent: OpenAITool[] =
     tools.length > 0 ? [...tools, ...builtinsForAgent] : builtinsForAgent.length > 0 ? builtinsForAgent : [];
   if (tools.length === 0) {

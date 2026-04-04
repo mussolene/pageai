@@ -85,9 +85,12 @@ export function parseXmlStyleToolCalls(text: string): ToolCallSpec[] {
       name !== "page_click" &&
       name !== "page_fill" &&
       name !== "page_navigate" &&
-      name !== "web_search"
+      name !== "open_search_tab" &&
+      name !== "web_search" &&
+      name !== "web_research"
     )
       continue;
+    const resolvedName = name === "web_search" ? "open_search_tab" : name;
     const inner = m[2];
     const args: Record<string, string> = {};
     const paramRegex = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/gi;
@@ -97,12 +100,12 @@ export function parseXmlStyleToolCalls(text: string): ToolCallSpec[] {
     }
     if (name !== "page_read" && Object.keys(args).length === 0) continue;
     const argsStr = JSON.stringify(args);
-    const key = `${name}:${argsStr}`;
+    const key = `${resolvedName}:${argsStr}`;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     out.push({
       id: `xml-${i++}`,
-      name,
+      name: resolvedName,
       arguments: argsStr
     });
   }

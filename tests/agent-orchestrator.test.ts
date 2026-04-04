@@ -16,14 +16,35 @@ describe("parseXmlStyleToolCalls", () => {
     expect(calls[0]?.arguments).toBe("{}");
   });
 
-  it("parses web_search with parameters", () => {
-    const text = `<function=web_search>
+  it("parses open_search_tab with parameters", () => {
+    const text = `<function=open_search_tab>
 <parameter=query>hello</parameter>
 </function>`;
     const calls = parseXmlStyleToolCalls(text);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.name).toBe("web_search");
+    expect(calls[0]?.name).toBe("open_search_tab");
     expect(JSON.parse(calls[0]?.arguments ?? "{}")).toEqual({ query: "hello" });
+  });
+
+  it("normalizes legacy web_search xml to open_search_tab", () => {
+    const text = `<function=web_search>
+<parameter=query>legacy</parameter>
+</function>`;
+    const calls = parseXmlStyleToolCalls(text);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.name).toBe("open_search_tab");
+    expect(JSON.parse(calls[0]?.arguments ?? "{}")).toEqual({ query: "legacy" });
+  });
+
+  it("parses web_research with parameters", () => {
+    const text = `<function=web_research>
+<parameter=query>rust async</parameter>
+<parameter=max_depth>1</parameter>
+</function>`;
+    const calls = parseXmlStyleToolCalls(text);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.name).toBe("web_research");
+    expect(JSON.parse(calls[0]?.arguments ?? "{}")).toEqual({ query: "rust async", max_depth: "1" });
   });
 });
 
@@ -31,7 +52,7 @@ describe("resolveToolCallsForRound", () => {
   it("prefers API tool_calls over XML in text", () => {
     const api = [{ id: "1", name: "page_read", arguments: "{}" }];
     const r = resolveToolCallsForRound(
-      { text: "<function=web_search><parameter=query>x</parameter></function>", tool_calls: api },
+      { text: "<function=open_search_tab><parameter=query>x</parameter></function>", tool_calls: api },
       { hasBrowserTools: true }
     );
     expect(r).toEqual(api);
