@@ -39,6 +39,12 @@ const orchestratorVerifyEl = document.getElementById("orchestrator-verify-enable
 const orchestratorToolRelevanceEl = document.getElementById("orchestrator-tool-relevance-enabled") as HTMLInputElement | null;
 const orchestratorNarrowToolsEl = document.getElementById("orchestrator-narrow-tools-enabled") as HTMLInputElement | null;
 const orchestratorMaxToolIterationsEl = document.getElementById("orchestrator-max-tool-iterations") as HTMLInputElement | null;
+const orchestratorPreshapeEl = document.getElementById("orchestrator-preshape-enabled") as HTMLInputElement | null;
+const orchestratorPreshapeMinCharsEl = document.getElementById("orchestrator-preshape-min-chars") as HTMLInputElement | null;
+const orchestratorPreshapeMaxCharsEl = document.getElementById("orchestrator-preshape-max-chars") as HTMLInputElement | null;
+const orchestratorPreshapeContextLinesEl = document.getElementById(
+  "orchestrator-preshape-context-lines"
+) as HTMLInputElement | null;
 const orchestratorCompressEl = document.getElementById("orchestrator-compress-enabled") as HTMLInputElement | null;
 const orchestratorCompressModeEl = document.getElementById("orchestrator-compress-mode") as HTMLSelectElement | null;
 const orchestratorCompressMinCharsEl = document.getElementById("orchestrator-compress-min-chars") as HTMLInputElement | null;
@@ -455,6 +461,10 @@ function wireEvents() {
   orchestratorToolRelevanceEl?.addEventListener("change", persistOrchestratorFromForm);
   orchestratorNarrowToolsEl?.addEventListener("change", persistOrchestratorFromForm);
   orchestratorMaxToolIterationsEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorPreshapeEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorPreshapeMinCharsEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorPreshapeMaxCharsEl?.addEventListener("change", persistOrchestratorFromForm);
+  orchestratorPreshapeContextLinesEl?.addEventListener("change", persistOrchestratorFromForm);
   orchestratorCompressEl?.addEventListener("change", persistOrchestratorFromForm);
   orchestratorCompressModeEl?.addEventListener("change", persistOrchestratorFromForm);
   orchestratorCompressMinCharsEl?.addEventListener("change", persistOrchestratorFromForm);
@@ -533,6 +543,10 @@ function readOrchestratorFromForm(): Record<string, unknown> {
     orchestratorToolRelevanceEnabled: orchestratorToolRelevanceEl?.checked ?? true,
     orchestratorNarrowToolsToRelevance: orchestratorNarrowToolsEl?.checked ?? true,
     orchestratorMaxToolIterations: Number(orchestratorMaxToolIterationsEl?.value ?? 10),
+    orchestratorPreshapeEnabled: orchestratorPreshapeEl?.checked !== false,
+    orchestratorPreshapeMinChars: Number(orchestratorPreshapeMinCharsEl?.value ?? 6000),
+    orchestratorPreshapeMaxChars: Number(orchestratorPreshapeMaxCharsEl?.value ?? 14_000),
+    orchestratorPreshapeContextLines: Number(orchestratorPreshapeContextLinesEl?.value ?? 2),
     orchestratorCompressEnabled: orchestratorCompressEl?.checked === true,
     orchestratorCompressMinChars: Number(orchestratorCompressMinCharsEl?.value ?? 8000),
     orchestratorCompressMaxInputChars: Number(orchestratorCompressMaxInputEl?.value ?? 28000),
@@ -555,6 +569,12 @@ function loadAgentOrchestrator(): void {
     if (orchestratorNarrowToolsEl) orchestratorNarrowToolsEl.checked = s.orchestratorNarrowToolsToRelevance;
     if (orchestratorMaxToolIterationsEl) {
       orchestratorMaxToolIterationsEl.value = String(s.orchestratorMaxToolIterations);
+    }
+    if (orchestratorPreshapeEl) orchestratorPreshapeEl.checked = s.orchestratorPreshapeEnabled;
+    if (orchestratorPreshapeMinCharsEl) orchestratorPreshapeMinCharsEl.value = String(s.orchestratorPreshapeMinChars);
+    if (orchestratorPreshapeMaxCharsEl) orchestratorPreshapeMaxCharsEl.value = String(s.orchestratorPreshapeMaxChars);
+    if (orchestratorPreshapeContextLinesEl) {
+      orchestratorPreshapeContextLinesEl.value = String(s.orchestratorPreshapeContextLines);
     }
     if (orchestratorCompressEl) orchestratorCompressEl.checked = s.orchestratorCompressEnabled;
     if (orchestratorCompressModeEl) {

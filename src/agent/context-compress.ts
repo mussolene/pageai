@@ -1,6 +1,7 @@
 import { chatWithLLMSubtask } from "../llm/client";
 import { SUBTASK_TOOL_COMPRESS_SYSTEM } from "./standards";
 import type { OrchestratorSyncSettings } from "./orchestrator-settings";
+import { preshapeToolOutputForContext } from "./tool-output-preshape";
 
 /** Усечь строку, сохранив начало и конец (для очень длинных сырьевых ответов). */
 export function truncateMiddle(raw: string, maxLen: number): string {
@@ -19,18 +20,26 @@ export function truncateMiddle(raw: string, maxLen: number): string {
 export function createToolContentFinalizer(
   settings: OrchestratorSyncSettings,
   signal?: AbortSignal
-): (toolName: string, raw: string) => Promise<string> {
-  return async (toolName: string, raw: string): Promise<string> => {
-    if (!settings.orchestratorCompressEnabled || raw.length < settings.orchestratorCompressMinChars) {
-      return raw;
+): (toolName: string, raw: string, userGoal?: string) => Promise<string> {
+  return async (toolName: string, raw: string, userGoal = ""): Promise<string> => {
+    const working = preshapeToolOutputForContext(raw, {
+      enabled: settings.orchestratorPreshapeEnabled,
+      minChars: settings.orchestratorPreshapeMinChars,
+      maxOutChars: settings.orchestratorPreshapeMaxChars,
+      contextLines: settings.orchestratorPreshapeContextLines,
+      userGoal
+    });
+
+    if (!settings.orchestratorCompressEnabled || working.length < settings.orchestratorCompressMinChars) {
+      return working;
     }
     const maxIn = Math.max(2000, settings.orchestratorCompressMaxInputChars);
     const target = Math.max(400, settings.orchestratorCompressTargetChars);
-    const prepared = raw.length > maxIn ? truncateMiddle(raw, maxIn) : raw;
+    const prepared = working.length > maxIn ? truncateMiddle(working, maxIn) : working;
 
     if (settings.orchestratorCompressMode === "truncate") {
-      const out = truncateMiddle(raw, target);
-      return out === raw ? out : `[Truncated tool output — ${toolName}]\n${out}`;
+      const out = truncateMiddle(working, target);
+      return out === working ? out : `[Truncated tool output — ${toolName}]\n${out}`;
     }
 
     const user = `Tool: ${toolName}
@@ -49,7 +58,7 @@ ${prepared}`;
     });
 
     if ("error" in r || !r.text.trim()) {
-      const fallback = truncateMiddle(raw, target);
+      const fallback = truncateMiddle(working, target);
       return `[Truncated tool output — ${toolName} (compress failed)]\n${fallback}`;
     }
 

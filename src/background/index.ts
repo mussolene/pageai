@@ -38,6 +38,7 @@ import {
   type OrchestratorSyncSettings
 } from "../agent/orchestrator-settings";
 import { createToolContentFinalizer } from "../agent/context-compress";
+import { lastUserContentFromApiMessages } from "../agent/tool-output-preshape";
 import type { OrchestrationMetrics } from "../agent/pipeline";
 import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
@@ -447,14 +448,15 @@ function createDefaultOrchestratorSubtasks(
 export type ToolCallResult = ToolExecutionResult;
 
 async function appendFinalizedToolMessage(
-  finalizeToolContent: (toolName: string, raw: string) => Promise<string>,
+  finalizeToolContent: (toolName: string, raw: string, userGoal?: string) => Promise<string>,
   tc: ToolCallSpec,
   raw: string,
   messages: LlmMessageForApi[],
   results: ToolExecutionResult[],
   resultMeta: { name: string; serverName?: string; args: string }
 ): Promise<string> {
-  const content = await finalizeToolContent(tc.name, raw);
+  const userGoal = lastUserContentFromApiMessages(messages);
+  const content = await finalizeToolContent(tc.name, raw, userGoal);
   messages.push({ role: "tool", tool_call_id: tc.id, content });
   results.push({ ...resultMeta, result: content });
   return content;
@@ -467,7 +469,7 @@ async function executeToolCallsAndAppendMessages(
   toolCalls: ToolCallSpec[],
   toolToServer: Map<string, ToolServerBinding>,
   messages: LlmMessageForApi[],
-  finalizeToolContent: (toolName: string, raw: string) => Promise<string> = async (_, r) => r,
+  finalizeToolContent: (toolName: string, raw: string, userGoal?: string) => Promise<string> = async (_, r) => r,
   hooks?: { onToolStart?: (tc: ToolCallSpec) => void; onToolEnd?: (tc: ToolCallSpec) => void }
 ): Promise<ToolExecutionResult[]> {
   const assistantToolCalls = toolCalls.map((tc) => ({

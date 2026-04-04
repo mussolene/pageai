@@ -144,6 +144,33 @@
                 </div>
               </div>
               <div class="settings-row settings-row-toggle">
+                <span class="settings-row-label" id="label-orchestrator-preshape">Pre-filter tool output (keyword lines from your message)</span>
+                <div class="settings-row-control">
+                  <label class="toggle-wrap" for="orchestrator-preshape-enabled">
+                    <input type="checkbox" id="orchestrator-preshape-enabled" class="toggle-input" checked />
+                    <span class="toggle" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-preshape-min-chars">Min tool output size for pre-filter (chars)</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-preshape-min-chars" min="500" max="500000" step="500" value="6000" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-preshape-max-chars">Max size after pre-filter (chars)</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-preshape-max-chars" min="2000" max="500000" step="1000" value="14000" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-row-label" for="orchestrator-preshape-context-lines">Context lines around each match</label>
+                <div class="settings-row-control">
+                  <input type="number" id="orchestrator-preshape-context-lines" min="0" max="12" step="1" value="2" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle">
                 <span class="settings-row-label" id="label-orchestrator-compress">Compress long tool outputs</span>
                 <div class="settings-row-control">
                   <label class="toggle-wrap" for="orchestrator-compress-enabled">

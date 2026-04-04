@@ -11,6 +11,8 @@ describe("mergeOrchestratorSettings", () => {
     expect(s.orchestratorNarrowToolsToRelevance).toBe(true);
     expect(s.orchestratorMaxToolIterations).toBe(10);
     expect(s.orchestratorCompressMinChars).toBe(ORCHESTRATOR_SYNC_STORAGE_DEFAULTS.orchestratorCompressMinChars);
+    expect(s.orchestratorPreshapeEnabled).toBe(true);
+    expect(s.orchestratorPreshapeMinChars).toBe(ORCHESTRATOR_SYNC_STORAGE_DEFAULTS.orchestratorPreshapeMinChars);
   });
 
   it("clamps max tool iterations", () => {

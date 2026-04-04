@@ -15,6 +15,14 @@ export interface OrchestratorSyncSettings {
   /** Целевая длина после сжатия (ориентир для промпта и усечения хвоста). */
   orchestratorCompressTargetChars: number;
   orchestratorCompressMode: OrchestratorCompressMode;
+  /** До LLM-сжатия: вырезать строки по ключевым словам из последнего user-сообщения (дешёвое ужатие контекста). */
+  orchestratorPreshapeEnabled: boolean;
+  /** Минимальный размер сырого tool output, чтобы запускать preshape. */
+  orchestratorPreshapeMinChars: number;
+  /** Максимум символов после grep-выжимки. */
+  orchestratorPreshapeMaxChars: number;
+  /** Сколько соседних строк брать вокруг совпадения. */
+  orchestratorPreshapeContextLines: number;
   /** Синонимы / предпочитаемые термины для web_search и извлечения ключевых слов. */
   agentSearchLexicon: string;
   /** Короткая подзадача «какие tools уместны» до основного цикла. */
@@ -34,6 +42,10 @@ export const ORCHESTRATOR_SYNC_STORAGE_DEFAULTS: Record<string, unknown> = {
   orchestratorCompressMaxInputChars: 28000,
   orchestratorCompressTargetChars: 4000,
   orchestratorCompressMode: "llm",
+  orchestratorPreshapeEnabled: true,
+  orchestratorPreshapeMinChars: 6000,
+  orchestratorPreshapeMaxChars: 14_000,
+  orchestratorPreshapeContextLines: 2,
   agentSearchLexicon: "",
   orchestratorToolRelevanceEnabled: true,
   orchestratorNarrowToolsToRelevance: true,
@@ -69,6 +81,22 @@ export function mergeOrchestratorSettings(stored: Record<string, unknown>): Orch
       100_000
     ),
     orchestratorCompressMode: mode,
+    orchestratorPreshapeEnabled: stored.orchestratorPreshapeEnabled !== false,
+    orchestratorPreshapeMinChars: clampInt(
+      Number(stored.orchestratorPreshapeMinChars ?? d.orchestratorPreshapeMinChars),
+      500,
+      500_000
+    ),
+    orchestratorPreshapeMaxChars: clampInt(
+      Number(stored.orchestratorPreshapeMaxChars ?? d.orchestratorPreshapeMaxChars),
+      2000,
+      500_000
+    ),
+    orchestratorPreshapeContextLines: clampInt(
+      Number(stored.orchestratorPreshapeContextLines ?? d.orchestratorPreshapeContextLines),
+      0,
+      12
+    ),
     agentSearchLexicon: typeof stored.agentSearchLexicon === "string" ? stored.agentSearchLexicon : "",
     orchestratorToolRelevanceEnabled: stored.orchestratorToolRelevanceEnabled !== false,
     orchestratorNarrowToolsToRelevance: stored.orchestratorNarrowToolsToRelevance !== false,
