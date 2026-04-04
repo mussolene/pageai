@@ -52,8 +52,10 @@ let streamingAssistantIndex: number | null = null;
 let streamingThinkingEl: HTMLDivElement | null = null;
 /** Элемент ответа после блока размышлений (стриминг). */
 let streamingAnswerEl: HTMLDivElement | null = null;
-/** Контейнер для шагов reasoning во время стрима — дополняется без полного renderMessages. */
-let streamingReasoningAnchorEl: HTMLDivElement | null = null;
+/** Один столбец: шаги по порядку → живой вывод текущего раунда → pending инструменты внизу. */
+let streamingTimelineEl: HTMLDivElement | null = null;
+/** Живой стрим текущего раунда (до прихода reasoning_step). */
+let streamingLiveWrapEl: HTMLDivElement | null = null;
 /** Временные строки «инструмент выполняется» до прихода reasoning_step (по tool_call id). */
 const pendingToolExecById = new Map<string, HTMLElement>();
 
@@ -89,7 +91,7 @@ function parseThinkBuffer(buf: string): { thinking?: string; answer?: string } {
 
 /**
  * Текст стрима до вызова инструментов сбрасывается вместе с streamingBuffer.
- * Возвращает шаг для показа в anchor (и для истории), если он не дублирует thinking из incoming.
+ * Возвращает шаг для таймлайна (и для истории), если он не дублирует thinking из incoming.
  */
 function takePreservedStreamPreamble(incoming: ReasoningStep[]): ReasoningStep | null {
   const raw = streamingBuffer.trim();
@@ -97,6 +99,19 @@ function takePreservedStreamPreamble(incoming: ReasoningStep[]): ReasoningStep |
   const firstThinking = incoming.find((s) => s.type === "thinking");
   if (firstThinking?.text != null && firstThinking.text.trim() === raw) return null;
   return { type: "thinking", text: raw };
+}
+
+/** Сбросить живой блок стрима после фиксации раунда (reasoning_step). */
+function clearStreamingLiveDom(): void {
+  if (streamingThinkingEl) {
+    streamingThinkingEl.textContent = "";
+    const tb = streamingThinkingEl.closest(".thinking-block");
+    if (tb) tb.classList.add("thinking-block-hidden");
+  }
+  if (streamingAnswerEl) {
+    streamingAnswerEl.innerHTML = "";
+    streamingAnswerEl.classList.add("message-answer-empty");
+  }
 }
 
 /** Форматирует аргументы вызова: для каждого параметра «Имя:\nЗначение» с новой строки. */
@@ -214,17 +229,19 @@ async function renderMessages() {
     inner.className = "message-inner";
 
     if (msg.role === "assistant" && isStreamingThis) {
-      const anchor = document.createElement("div");
-      anchor.className = "streaming-reasoning-anchor";
-      streamingReasoningAnchorEl = anchor;
+      const timeline = document.createElement("div");
+      timeline.className = "assistant-timeline streaming-reasoning-anchor";
+      streamingTimelineEl = timeline;
       for (const step of streamingReasoningSteps) {
         const stepDiv = document.createElement("div");
         stepDiv.className = "message reasoning-step";
         const stepEl = await buildReasoningStepElement(step);
         stepDiv.appendChild(stepEl);
-        anchor.appendChild(stepDiv);
+        timeline.appendChild(stepDiv);
       }
-      inner.appendChild(anchor);
+      const liveWrap = document.createElement("div");
+      liveWrap.className = "assistant-live-stream";
+      streamingLiveWrapEl = liveWrap;
       const bubble = document.createElement("div");
       bubble.className = "message-content message-bubble";
       const parsed = parseThinkBuffer(streamingBuffer);
@@ -249,28 +266,30 @@ async function renderMessages() {
       if (!hasAnswer) answerContent.classList.add("message-answer-empty");
       if (hasAnswer) renderMarkdown(answerContent, parsed.answer ?? "");
       bubble.appendChild(answerContent);
-      inner.appendChild(bubble);
       streamingAnswerEl = answerContent;
+      liveWrap.appendChild(bubble);
+      timeline.appendChild(liveWrap);
+      inner.appendChild(timeline);
     } else if (msg.role === "assistant" && (msg.reasoningSteps?.length ?? 0) > 0) {
       const steps = msg.reasoningSteps ?? [];
-      const anchor = document.createElement("div");
-      anchor.className = "streaming-reasoning-anchor";
+      const timeline = document.createElement("div");
+      timeline.className = "assistant-timeline streaming-reasoning-anchor";
       for (const step of steps) {
         const stepDiv = document.createElement("div");
         stepDiv.className = "message reasoning-step";
         const stepEl = await buildReasoningStepElement(step);
         stepDiv.appendChild(stepEl);
-        anchor.appendChild(stepDiv);
+        timeline.appendChild(stepDiv);
       }
-      inner.appendChild(anchor);
       const bubble = document.createElement("div");
-      bubble.className = "message-content message-bubble";
+      bubble.className = "message-content message-bubble assistant-final-answer";
       const contentDiv = document.createElement("div");
       contentDiv.className = "message-answer";
       const parsed = parseLlmResponse(msg.content);
       renderMarkdown(contentDiv, parsed.content);
       bubble.appendChild(contentDiv);
-      inner.appendChild(bubble);
+      timeline.appendChild(bubble);
+      inner.appendChild(timeline);
       const sourceItems = createSourceListItems(parsed.sources);
       if (sourceItems.length > 0) {
         const sourcesContainer = document.createElement("div");
@@ -286,23 +305,23 @@ async function renderMessages() {
         inner.appendChild(sourcesContainer);
       }
     } else if (msg.role === "assistant" && msg.thinking != null && msg.thinking !== "") {
-      const anchor = document.createElement("div");
-      anchor.className = "streaming-reasoning-anchor";
+      const timeline = document.createElement("div");
+      timeline.className = "assistant-timeline streaming-reasoning-anchor";
       const stepDiv = document.createElement("div");
       stepDiv.className = "message reasoning-step";
       const thinkingStep: ReasoningStep = { type: "thinking", text: msg.thinking };
       const stepEl = await buildReasoningStepElement(thinkingStep);
       stepDiv.appendChild(stepEl);
-      anchor.appendChild(stepDiv);
-      inner.appendChild(anchor);
+      timeline.appendChild(stepDiv);
       const bubble = document.createElement("div");
-      bubble.className = "message-content message-bubble";
+      bubble.className = "message-content message-bubble assistant-final-answer";
       const contentDiv = document.createElement("div");
       contentDiv.className = "message-answer";
       const parsed = parseLlmResponse(msg.content);
       renderMarkdown(contentDiv, parsed.content);
       bubble.appendChild(contentDiv);
-      inner.appendChild(bubble);
+      timeline.appendChild(bubble);
+      inner.appendChild(timeline);
       const sourceItems = createSourceListItems(parsed.sources);
       if (sourceItems.length > 0) {
         const sourcesContainer = document.createElement("div");
@@ -356,7 +375,8 @@ async function renderMessages() {
   if (streamingAssistantIndex === null) {
     streamingThinkingEl = null;
     streamingAnswerEl = null;
-    streamingReasoningAnchorEl = null;
+    streamingTimelineEl = null;
+    streamingLiveWrapEl = null;
   }
 
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -417,10 +437,11 @@ async function handleSendMessage() {
             timestamp: new Date().toISOString()
           });
           streamingAssistantIndex = chatHistory.length - 1;
-          streamingReasoningAnchorEl = null;
+          streamingTimelineEl = null;
+          streamingLiveWrapEl = null;
           await renderMessages();
         }
-        if (!streamingReasoningAnchorEl) return;
+        if (!streamingTimelineEl) return;
         const wrap = document.createElement("div");
         wrap.className = "message reasoning-step tool-exec-pending";
         wrap.dataset.toolCallId = toolCallId;
@@ -435,7 +456,7 @@ async function handleSendMessage() {
         details.appendChild(summary);
         details.appendChild(inner);
         wrap.appendChild(details);
-        streamingReasoningAnchorEl.appendChild(wrap);
+        streamingTimelineEl.appendChild(wrap);
         pendingToolExecById.set(toolCallId, wrap);
         if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
       })();
@@ -466,21 +487,25 @@ async function handleSendMessage() {
             timestamp: new Date().toISOString()
           });
           streamingAssistantIndex = chatHistory.length - 1;
-          streamingReasoningAnchorEl = null;
+          streamingTimelineEl = null;
+          streamingLiveWrapEl = null;
           await renderMessages();
           return;
         }
-        if (streamingReasoningAnchorEl) {
-          streamingReasoningAnchorEl.querySelectorAll(".tool-exec-pending").forEach((el) => el.remove());
+        if (streamingTimelineEl && streamingLiveWrapEl) {
+          streamingTimelineEl.querySelectorAll(".tool-exec-pending").forEach((el) => el.remove());
           pendingToolExecById.clear();
           const stepsToRender = preamble ? [preamble, ...incoming] : incoming;
+          const frag = document.createDocumentFragment();
           for (const step of stepsToRender) {
             const stepDiv = document.createElement("div");
             stepDiv.className = "message reasoning-step";
             const stepEl = await buildReasoningStepElement(step);
             stepDiv.appendChild(stepEl);
-            streamingReasoningAnchorEl.appendChild(stepDiv);
+            frag.appendChild(stepDiv);
           }
+          streamingTimelineEl.insertBefore(frag, streamingLiveWrapEl);
+          clearStreamingLiveDom();
           if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
           return;
         }
@@ -501,7 +526,8 @@ async function handleSendMessage() {
         };
         chatHistory.push(placeholder);
         streamingAssistantIndex = chatHistory.length - 1;
-        streamingReasoningAnchorEl = null;
+        streamingTimelineEl = null;
+        streamingLiveWrapEl = null;
         void renderMessages();
       }
       if (streamingThinkingEl) {
@@ -534,7 +560,8 @@ async function handleSendMessage() {
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
-      streamingReasoningAnchorEl = null;
+      streamingTimelineEl = null;
+      streamingLiveWrapEl = null;
       streamPort = null;
       isSending = false;
       pendingToolExecById.clear();
@@ -563,7 +590,8 @@ async function handleSendMessage() {
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
-      streamingReasoningAnchorEl = null;
+      streamingTimelineEl = null;
+      streamingLiveWrapEl = null;
       streamingBuffer = "";
       streamingReasoningSteps = [];
       streamPort = null;
@@ -582,7 +610,8 @@ async function handleSendMessage() {
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
-      streamingReasoningAnchorEl = null;
+      streamingTimelineEl = null;
+      streamingLiveWrapEl = null;
       streamingBuffer = "";
       streamingReasoningSteps = [];
       void renderMessages();
@@ -613,7 +642,8 @@ async function handleSendMessage() {
     streamingAssistantIndex = null;
     streamingThinkingEl = null;
     streamingAnswerEl = null;
-    streamingReasoningAnchorEl = null;
+    streamingTimelineEl = null;
+    streamingLiveWrapEl = null;
     streamingBuffer = "";
     streamingReasoningSteps = [];
     streamPort = null;
@@ -1067,7 +1097,8 @@ async function clearChat(): Promise<void> {
   streamingAssistantIndex = null;
   streamingThinkingEl = null;
   streamingAnswerEl = null;
-  streamingReasoningAnchorEl = null;
+  streamingTimelineEl = null;
+  streamingLiveWrapEl = null;
   streamingBuffer = "";
   streamingReasoningSteps = [];
   isSending = false;
@@ -1103,7 +1134,8 @@ function wireEvents() {
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;
-      streamingReasoningAnchorEl = null;
+      streamingTimelineEl = null;
+      streamingLiveWrapEl = null;
       streamingBuffer = "";
       streamingReasoningSteps = [];
       isSending = false;

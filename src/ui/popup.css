@@ -471,11 +471,20 @@ body.standalone-window .header {
   background: var(--border);
 }
 
-.streaming-reasoning-anchor {
+.streaming-reasoning-anchor,
+.assistant-timeline {
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 100%;
+}
+
+.assistant-live-stream {
+  width: 100%;
+}
+
+.message-content.message-bubble.assistant-final-answer {
+  margin-top: 2px;
 }
 
 .streaming-reasoning-anchor .tool-call-block.tool-exec-running {
