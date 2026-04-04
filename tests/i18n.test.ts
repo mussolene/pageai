@@ -46,6 +46,11 @@ describe("i18n", () => {
       (global as unknown as { navigator: { language: string } }).navigator = { language: "ru-RU" };
       expect(getLocale()).toBe("ru");
     });
+
+    it("returns en when navigator is missing (Node / CI)", () => {
+      Reflect.deleteProperty(globalThis, "navigator");
+      expect(getLocale()).toBe("en");
+    });
   });
 
   describe("t", () => {

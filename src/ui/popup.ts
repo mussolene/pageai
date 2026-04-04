@@ -2,6 +2,7 @@ import type { ChatMessage, ReasoningStep } from "../types/messages";
 import { translate, getStoredLocale } from "../i18n";
 import { Storage } from "../storage/indexdb";
 import { renderMarkdown, renderStreamingAnswerPreview } from "./markdown";
+import { parseThinkBuffer, buildPartialAssistantOnDisconnect } from "./think-buffer";
 import { parseLlmResponse, highlightInlineCitations, createSourceListItems } from "../search/sources";
 import { getLlmConfigsAndActive, setActiveLlmConfigId } from "../llm/client";
 import {
@@ -55,19 +56,6 @@ async function updatePlayStopButton(streaming: boolean): Promise<void> {
   const title = streaming ? await translate("chat.stop") : await translate("chat.send");
   sendButton.title = title;
   sendButton.setAttribute("aria-label", title);
-}
-
-/** Парсит буфер стрима: thinking внутри <think>, answer — после </think> или весь буфер, если тегов нет. */
-function parseThinkBuffer(buf: string): { thinking?: string; answer?: string } {
-  const thinkOpen = buf.indexOf("<think>");
-  const thinkClose = buf.indexOf("</think>");
-  if (thinkClose === -1) {
-    if (thinkOpen === -1) return { answer: buf };
-    return { thinking: buf.slice(thinkOpen + 7) };
-  }
-  const thinking = thinkOpen === -1 ? "" : buf.slice(thinkOpen + 7, thinkClose);
-  const answer = buf.slice(thinkClose + 8);
-  return { thinking, answer };
 }
 
 function takePreservedStreamPreamble(incoming: ReasoningStep[]): ReasoningStep | null {
@@ -600,7 +588,14 @@ async function handleSendMessage() {
     setToolsExecutingShimmer(false);
     pendingToolExecById.clear();
     if (streamingAssistantIndex !== null) {
-      chatHistory.splice(streamingAssistantIndex, 1);
+      const idx = streamingAssistantIndex;
+      const partial = buildPartialAssistantOnDisconnect(streamingBuffer, streamingReasoningSteps);
+      if (partial) {
+        chatHistory[idx] = partial;
+        void storage.saveChatMessage(partial).catch(() => {});
+      } else {
+        chatHistory.splice(idx, 1);
+      }
       streamingAssistantIndex = null;
       streamingThinkingEl = null;
       streamingAnswerEl = null;

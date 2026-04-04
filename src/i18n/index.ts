@@ -10,9 +10,14 @@ const translations: Record<Locale, typeof enTranslations> = {
   ru: ruTranslations
 };
 
-/** Locale from browser/system language (navigator.language). */
+/** Locale from browser/system language, or "en" when `navigator` is missing (Node / tests). */
 export function getLocale(): Locale {
-  const browserLang = navigator.language.split("-")[0];
+  const raw =
+    typeof globalThis.navigator !== "undefined" &&
+    typeof globalThis.navigator.language === "string"
+      ? globalThis.navigator.language
+      : "en";
+  const browserLang = raw.split("-")[0].toLowerCase();
   return supportedLocales.includes(browserLang as Locale) ? (browserLang as Locale) : "en";
 }
 

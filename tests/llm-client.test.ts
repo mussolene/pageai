@@ -19,8 +19,8 @@ vi.mock("../src/storage/indexdb", () => ({
   setCachedLlmResponse: (...args: unknown[]) => mockSetCachedLlmResponse(...args),
 }));
 
-describe("LLM Client - Session #1 Integration with LM Studio", () => {
-  // Mock fetch для тестирования без реального LM Studio
+/** Mocked `fetch` + `chrome.storage` — реальный LM Studio в CI не нужен (см. session-1-e2e для ручной проверки). */
+describe("LLM Client (unit, mocked fetch)", () => {
   beforeEach(() => {
     mockGetCachedLlmResponse.mockResolvedValue(null);
     mockSetCachedLlmResponse.mockResolvedValue(undefined);
