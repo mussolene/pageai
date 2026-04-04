@@ -253,7 +253,9 @@ const BASE_CHAT_SYSTEM_PROMPT =
   "Answer accurately and concisely. Use available tools when they meaningfully improve your answer. " +
   "Prefer evidence from tools over guessing. " +
   "When a tool fails, try an alternative approach rather than retrying with identical arguments. " +
-  "Match the user's language in your final answer.";
+  "Language: write the entire reply (including headings, lists, code comments if any, and the sources section) strictly in the same language as the user's latest message. " +
+  "If the user mixes languages, follow the dominant language of that message. " +
+  "Do not switch to another language unless the user explicitly asks.";
 
 /** Извлекает размышления и финальный текст из ответа модели (теги <think>...</think>). */
 function parseThinkingFromText(text: string): { text: string; thinking?: string } {
