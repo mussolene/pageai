@@ -18,6 +18,12 @@ Stop when: the user’s question is answered with evidence, you must ask a clari
 Do not repeat the same failed tool call with identical arguments. If a critical tool is unavailable, explain what is missing rather than fabricating data.
 `.trim();
 
+/** Подзадача: сжать фрагмент истории чата в «память» для следующих ходов (rolling summary). */
+export const SUBTASK_CHAT_HISTORY_SUMMARY_SYSTEM = `You compress chat transcript into durable memory for later turns of the same conversation.
+Keep: user goals, agreements, open questions, names, numbers, URLs, errors.
+Drop: filler, redundant wording. One block of prose (not bullet diary), under ~6000 characters.
+Match the language of the transcript.`.trim();
+
 /** Системный промпт подзадачи «план» (короткий, без истории чата). */
 export const SUBTASK_PLAN_SYSTEM = `You are a sub-planner for a browser extension assistant. The main model will use tools (read page, MCP, open search tabs).
 Output a SHORT plan (max 10 short lines, bullets):

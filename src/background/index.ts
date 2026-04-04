@@ -41,8 +41,53 @@ import { createToolContentFinalizer } from "../agent/context-compress";
 import type { OrchestrationMetrics } from "../agent/pipeline";
 import { getBrowserTools } from "../browser-tools";
 import { callMcpTool } from "../mcp/client";
+import { buildAgentConversationFromChatHistory, CHAT_ROLLING_SUMMARY_KEYS } from "../chat/chat-llm-context";
+import { maybeRefreshRollingChatSummary } from "../chat/rolling-summary";
 
 const storage = new Storage();
+
+/** Лимиты контекста чата и rolling-summary (chrome.storage.sync). */
+const CHAT_CONTEXT_SYNC_DEFAULTS = {
+  chatContextMaxMessages: 56,
+  chatContextMaxChars: 100_000,
+  chatRollingSummaryEnabled: true,
+  chatRollingSummaryEvery: 16,
+  chatRollingSummaryBatch: 8
+} as const;
+
+async function loadChatContextPolicy(): Promise<{
+  maxMessages: number;
+  maxChars: number;
+  rollingEnabled: boolean;
+  rollingEvery: number;
+  rollingBatch: number;
+}> {
+  const raw = await new Promise<Record<string, unknown>>((r) =>
+    chrome.storage.sync.get(CHAT_CONTEXT_SYNC_DEFAULTS, r)
+  );
+  return {
+    maxMessages: Math.min(256, Math.max(4, Number(raw.chatContextMaxMessages ?? 56))),
+    maxChars: Math.min(500_000, Math.max(4000, Number(raw.chatContextMaxChars ?? 100_000))),
+    rollingEnabled: raw.chatRollingSummaryEnabled !== false,
+    rollingEvery: Math.min(80, Math.max(4, Number(raw.chatRollingSummaryEvery ?? 16))),
+    rollingBatch: Math.min(40, Math.max(2, Number(raw.chatRollingSummaryBatch ?? 8)))
+  };
+}
+
+function scheduleRollingSummaryUpdate(policy: {
+  enabled: boolean;
+  everyMessages: number;
+  batchMessages: number;
+}): void {
+  if (!policy.enabled) return;
+  void storage.getChatHistory().then((h) =>
+    maybeRefreshRollingChatSummary(h, {
+      enabled: policy.enabled,
+      everyMessages: policy.everyMessages,
+      batchMessages: policy.batchMessages
+    }).catch(() => {})
+  );
+}
 
 /** Диагностический инструмент: модель вызывает его по запросу "проверь инструменты". */
 const MCP_DIAGNOSE_TOOL: OpenAITool = {
@@ -768,7 +813,7 @@ async function executeToolCallsAndAppendMessages(
  * Отправляет reasoning_step после каждого раунда с tool_calls, чтобы UI сохранял все размышления и вызовы.
  */
 async function runAgentStreamWithMcpTools(
-  userMessage: string,
+  conversation: LlmMessageForApi[],
   toolsContext: {
     mcpLoaded: McpToolsLoadResult;
     browserTools: OpenAITool[];
@@ -794,7 +839,7 @@ async function runAgentStreamWithMcpTools(
   }
   if (openAITools.length === 0) {
     const result = await chatWithLLMStream(
-      [{ role: "user", content: userMessage }],
+      conversation,
       { systemPrompt, onChunk: (text) => safePortPost(port, { type: "chunk", text }), signal }
     );
     if ("error" in result) return result;
@@ -806,7 +851,7 @@ async function runAgentStreamWithMcpTools(
   }
   const toolCatalogMarkdown = buildEnrichedToolCatalogMarkdown(openAITools, toolToServer);
   return orchestrateStreamingAgent(
-    userMessage,
+    conversation,
     {
       systemPrompt,
       tools: openAITools,
@@ -990,11 +1035,12 @@ let activeChatTasks = 0;
 async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
   const { port, queryText, abortController } = task;
   let keepaliveOffscreenOpened = false;
+  let chatPolicy: Awaited<ReturnType<typeof loadChatContextPolicy>> | null = null;
   try {
     keepaliveOffscreenOpened = await openStreamKeepaliveOffscreen();
 
-    let userMessage = queryText;
     let sourcesForDone: { title: string; url: string }[] | undefined;
+    let lastUserOverride: string | null = null;
 
     if (isQuestionAboutCurrentPage(queryText)) {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1014,8 +1060,32 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
         return;
       }
       const currentPage = currentPageResponse.page;
-      userMessage = buildSummaryPrompt([currentPage], queryText);
+      lastUserOverride = buildSummaryPrompt([currentPage], queryText);
       sourcesForDone = [{ title: currentPage.title, url: currentPage.url }];
+    }
+
+    chatPolicy = await loadChatContextPolicy();
+    const localRolling = await chrome.storage.local.get({
+      [CHAT_ROLLING_SUMMARY_KEYS.text]: "",
+      [CHAT_ROLLING_SUMMARY_KEYS.covers]: 0
+    });
+    const fullHistory = await storage.getChatHistory();
+    let conversation = buildAgentConversationFromChatHistory(fullHistory, {
+      maxMessages: chatPolicy.maxMessages,
+      maxChars: chatPolicy.maxChars,
+      rolling: {
+        summaryText: String(localRolling[CHAT_ROLLING_SUMMARY_KEYS.text] ?? ""),
+        coversCount: Number(localRolling[CHAT_ROLLING_SUMMARY_KEYS.covers]) || 0
+      },
+      summaryEnabled: chatPolicy.rollingEnabled
+    });
+    if (conversation.length === 0) {
+      conversation = [{ role: "user", content: lastUserOverride ?? queryText }];
+    } else if (lastUserOverride != null) {
+      const li = conversation.length - 1;
+      if (conversation[li]?.role === "user") {
+        conversation = [...conversation.slice(0, li), { role: "user", content: lastUserOverride }];
+      }
     }
 
     const { mcpLoaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator } =
@@ -1024,7 +1094,7 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
 
     if (hasAnyTools) {
       const result = await runAgentStreamWithMcpTools(
-        userMessage,
+        conversation,
         { mcpLoaded, browserTools, systemPrompt, agentContextForSubtasks, orchestrator },
         port,
         abortController.signal
@@ -1046,11 +1116,16 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
         await storage.saveChatMessage(doneMessage);
         showChatReadyNotification();
       }
+      scheduleRollingSummaryUpdate({
+        enabled: chatPolicy.rollingEnabled,
+        everyMessages: chatPolicy.rollingEvery,
+        batchMessages: chatPolicy.rollingBatch
+      });
       return;
     }
 
     const result = await chatWithLLMStream(
-      [{ role: "user", content: userMessage }],
+      conversation,
       {
         systemPrompt,
         onChunk: (text: string) => safePortPost(port, { type: "chunk", text }),
@@ -1073,6 +1148,11 @@ async function runOneChatStreamTask(task: ChatStreamTask): Promise<void> {
       await storage.saveChatMessage(doneMsg);
       showChatReadyNotification();
     }
+    scheduleRollingSummaryUpdate({
+      enabled: chatPolicy.rollingEnabled,
+      everyMessages: chatPolicy.rollingEvery,
+      batchMessages: chatPolicy.rollingBatch
+    });
   } catch (error) {
     if ((error as Error).name === "AbortError") return;
     safePortPost(port, { type: "error", error: (error as Error).message });

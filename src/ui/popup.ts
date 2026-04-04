@@ -9,6 +9,7 @@ import {
   listMcpTools,
   getDefaultMcpServersConfig
 } from "../mcp/client";
+import { resetRollingChatSummaryStorage } from "../chat/rolling-summary";
 
 const messagesContainer = document.getElementById("messages") as HTMLDivElement;
 const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
@@ -369,6 +370,7 @@ async function clearChat(): Promise<void> {
   streamingReasoningSteps = [];
   pendingToolExecById.clear();
   await storage.clearChatHistory();
+  await resetRollingChatSummaryStorage();
   chatHistory = [];
   void updatePlayStopButton(false);
   void renderMessages();

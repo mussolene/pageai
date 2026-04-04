@@ -178,11 +178,20 @@ export interface StreamingOrchestratorDeps {
   narrowToolsToRelevance?: boolean;
 }
 
+function lastUserPlainFromConversation(conversation: LlmMessageForApi[]): string {
+  for (let i = conversation.length - 1; i >= 0; i--) {
+    const m = conversation[i];
+    if (m.role === "user" && typeof m.content === "string") return m.content;
+  }
+  return "";
+}
+
 /**
  * Цикл агента со стримингом: каждый раунд — запрос к LLM, при необходимости выполнение инструментов, снова LLM.
+ * @param conversation — история user/assistant (и при необходимости tool), последнее сообщение должно быть от user (текущий запрос).
  */
 export async function orchestrateStreamingAgent(
-  userMessage: string,
+  conversation: LlmMessageForApi[],
   input: StreamingOrchestratorInput,
   deps: StreamingOrchestratorDeps
 ): Promise<
@@ -191,7 +200,17 @@ export async function orchestrateStreamingAgent(
 > {
   const metrics = createInitialMetrics();
   const maxIt = deps.maxIterations ?? DEFAULT_MAX_AGENT_TOOL_ITERATIONS;
-  const messages: LlmMessageForApi[] = [{ role: "user", content: userMessage }];
+  const userMessage = lastUserPlainFromConversation(conversation);
+  if (!userMessage.trim()) {
+    metrics.stopReason = "llm_error";
+    metrics.lastPhase = "final";
+    return { error: "Conversation is empty or has no user message at the end.", metrics };
+  }
+  const messages: LlmMessageForApi[] = conversation.map((m) => {
+    if (m.role === "tool") return { ...m };
+    if (m.role === "assistant") return { ...m };
+    return { ...m };
+  });
   const reasoningSteps: ReasoningStep[] = [];
   let effectiveSystem = input.systemPrompt;
   const sub = deps.subtasks;
