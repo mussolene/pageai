@@ -57,6 +57,14 @@ Additional note`;
       expect(result.hasFooterSection).toBe(false);
     });
 
+    it('should not split on Markdown horizontal rules (---) without Sources footer', () => {
+      const response = `Intro\n\n---\n\n### Section\n\nMore text\n\n---\n\nEnd.`;
+      const result = parseLlmResponse(response);
+      expect(result.content).toBe(response.trim());
+      expect(result.sources).toHaveLength(0);
+      expect(result.hasFooterSection).toBe(false);
+    });
+
     it('should handle response with no sources', () => {
       const response = 'Just plain text with no links or sources.';
 

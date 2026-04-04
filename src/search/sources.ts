@@ -98,31 +98,33 @@ function extractInlineCitations(text: string): Array<{ number: number; position:
   return citations;
 }
 
+/** Only treat `---` as a sources footer divider when it is followed by Источники:/Sources: (not Markdown HR). */
+const SOURCES_FOOTER_MARKER =
+  /(?:^|\r?\n)\s*---\s*\r?\n(?:\s*\r?\n)*(?:Источники|Sources)\s*:/im;
+
 /**
  * Main function: Parse LLM response for sources and citations
  *
- * Splits response by "---" separator and extracts sources from footer section.
- * Returns main content and extracted sources.
+ * Splits only when a line `---` is followed by a `Источники:` / `Sources:` block (PageAI convention).
+ * Plain Markdown horizontal rules (`---` alone) no longer truncate the answer.
  *
  * Usage:
  * const response = `Here's the answer...\n---\nИсточники:\n1. [Getting Started](url)`;
  * const { content, sources } = parseLlmResponse(response);
  */
 export function parseLlmResponse(response: string): ParsedResponse {
-  // Split by "---" separator to extract footer section
-  const parts = response.split(/\n\s*---\s*\n/);
-  const mainContent = parts[0];
-  const footerSection = parts.length > 1 ? parts.slice(1).join('\n---\n') : '';
+  const match = SOURCES_FOOTER_MARKER.exec(response);
+  const mainContent = match ? response.slice(0, match.index) : response;
+  const tailFromMarker = match ? response.slice(match.index) : "";
 
-  // Parse sources from footer section if present
-  const footerSources = footerSection ? parseSourcesSection(footerSection) : [];
+  const footerSources =
+    tailFromMarker.length > 0 ? parseSourcesSection(tailFromMarker) : [];
   const hasFooterSection = footerSources.length > 0;
 
-  // If no footer sources, try to extract from markdown links in main content
-  const sources = footerSources.length > 0 
-    ? footerSources 
-    : extractMarkdownLinks(mainContent)
-        .map((link, idx) => ({
+  const sources =
+    footerSources.length > 0
+      ? footerSources
+      : extractMarkdownLinks(mainContent).map((link, idx) => ({
           id: idx + 1,
           title: link.text,
           url: link.url,
